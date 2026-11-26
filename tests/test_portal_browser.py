@@ -215,6 +215,28 @@ def test_colmena_submit_without_validation_robot(
     assert len(portals.state.posted("reembolso-web/solicitud")) == 1
 
 
+def test_colmena_blocked_continuar_fails_before_the_marker(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    settings: Settings,
+) -> None:
+    """A Continuar that can't be clicked fails without a marker and leaves a screenshot."""
+    portals.state.continue_blocked = True
+
+    report = Pipeline(
+        service, make_colmena(continue_timeout_s=1), FakePortalClient("chubb")
+    ).run_once()
+
+    view = service.repo.get_rendicion(lab_rendicion)
+    assert report.errors == [lab_rendicion]
+    assert "no dejó presionar Continuar" in (view.error_message or "")
+    assert service.repo.get_marker(lab_rendicion, "colmena") is None
+    assert portals.state.posted("reembolso-web/solicitud") == []
+    assert len(list((settings.data_dir / "screenshots").glob("colmena-*-error-*.png"))) == 1
+
+
 def test_colmena_excedentes_always_yes(
     service: RendicionService,
     lab_rendicion: int,

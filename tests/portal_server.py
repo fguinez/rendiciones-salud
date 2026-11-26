@@ -43,6 +43,8 @@ class PortalState:
     robot_error: bool = False
     # False mimics Colmena's "flujo_colmena": selecting a file posts nothing to the robot.
     robot: bool = True
+    # An overlay covers the form once T&C is ticked, so Continuar never takes a click.
+    continue_blocked: bool = False
     request_number: str = "987654"
     colmena_requests: list[dict[str, Any]] = field(default_factory=list)
     chubb_expired: bool = False
@@ -92,6 +94,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "excedentes": state.excedentes,
                 "robotError": state.robot_error,
                 "robot": state.robot,
+                "continueBlocked": state.continue_blocked,
                 "requestNumber": state.request_number,
                 "token": TOKEN,
             }

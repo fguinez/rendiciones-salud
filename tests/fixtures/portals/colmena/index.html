@@ -161,7 +161,15 @@ async function finaliza(decision) {
 function setupSolicitar() {
   $("#bank-continue").onclick = () => { $("#screen-bank").hidden = true; $("#screen-form").hidden = false; };
   dropdown($("#tipo"), Object.keys(TREE), (name) => renderLevel(TREE[name], 0));
-  $("#terms-box").onclick = () => { $("#terms").checked = !$("#terms").checked; };
+  $("#terms-box").onclick = () => {
+    $("#terms").checked = !$("#terms").checked;
+    if (FIXTURE.continueBlocked) {
+      const overlay = document.createElement("div");
+      overlay.className = "ui-widget-overlay";
+      overlay.style.cssText = "position:fixed;inset:0;z-index:1000";
+      document.body.appendChild(overlay);
+    }
+  };
   $("#form-continue").onclick = async () => {
     if (!$("#terms").checked) { growl("Debes aceptar los términos"); return; }
     const fd = new FormData();
