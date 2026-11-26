@@ -229,6 +229,7 @@ def test_colmena_waits_for_the_prestacion_answer_before_attaching(
 
     assert report.colmena_submitted == [lista_rendicion]
     assert len(portals.state.posted("validacion-documento")) == 1
+    assert b'name="boleta"' in portals.state.posted("reembolso-web/solicitud")[0]
 
 
 def test_colmena_reattaches_a_file_the_page_dropped(
