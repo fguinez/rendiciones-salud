@@ -166,6 +166,14 @@ def read_login_failure(page: Page) -> LoginFailure | None:
     )
 
 
+def _has_token(page: Page) -> bool:
+    """Whether the tab still holds a session token (False when the page cannot answer)."""
+    try:
+        return bool(page.evaluate("k => !!window.localStorage.getItem(k)", ColmenaSel.TOKEN_KEY))
+    except PlaywrightError:
+        return False
+
+
 def _items(body: Any) -> list[Mapping[str, Any]]:
     if isinstance(body, Mapping):
         body = body.get("response")
@@ -240,8 +248,9 @@ class ColmenaBrowserClient:
     def _log_in(self, page: Page) -> bool:
         """Log in with the saved credential (at most once a minute, so never in a loop).
 
-        Starts from a fresh load of the login route: an expired tab can be stuck on any page,
-        and a hash-only ``goto`` would not restart the app.
+        Without a token it starts from a fresh load of the login route: an expired tab can be
+        stuck on any page, and a hash-only ``goto`` would not restart the app. With a token
+        it stays put, since opening the login route logs the session out.
         """
         recent = self._login_tried_at is not None and time.monotonic() - self._login_tried_at < 60
         if self.auto_login is None or recent:
@@ -249,8 +258,11 @@ class ColmenaBrowserClient:
         self._login_tried_at = time.monotonic()
         load_failed = False
         try:
-            page.goto(self.urls.login_form, wait_until="domcontentloaded")
-            page.reload(wait_until="domcontentloaded")
+            if not _has_token(page):
+                page.goto(self.urls.login_form, wait_until="domcontentloaded")
+                page.reload(wait_until="domcontentloaded")
+        except PlaywrightTimeoutError:
+            logger.warning("colmena login page slow to load; waiting for it")
         except PlaywrightError as exc:
             # ``attempt`` records the failed load with a screenshot instead of raising it.
             logger.warning("colmena login page did not load: %s", type(exc).__name__)

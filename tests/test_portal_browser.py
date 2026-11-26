@@ -441,6 +441,24 @@ def test_colmena_unreachable_login_page_is_recorded(
     assert list((settings.data_dir / "screenshots").glob("login-colmena-*.png"))
 
 
+def test_colmena_log_in_keeps_a_live_session(
+    portals: PortalServer,
+    session: BrowserSession,
+    colmena_urls: ColmenaUrls,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    make_auto_login: Callable[[str], AutoLogin],
+) -> None:
+    """A tab that still has its token is not sent to the login route, which would log it out."""
+    page = session.page("colmena")
+    page.goto(colmena_urls.consultar, wait_until="domcontentloaded")
+    client = make_colmena(auto_login=make_auto_login("clave-de-prueba"))
+
+    ok = client._log_in(page)
+
+    assert ok
+    assert (portals.state.logins, "#/login" in page.url) == ([], False)
+
+
 def test_colmena_interrupted_submit_is_reconciled_not_resent(
     service: RendicionService,
     lab_rendicion: int,
