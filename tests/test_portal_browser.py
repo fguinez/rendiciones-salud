@@ -413,7 +413,7 @@ def test_auto_login_reports_a_page_that_never_loaded(
 ) -> None:
     """A tab that never loaded is not reported as a missing login form."""
     auto_login = make_auto_login("clave-de-prueba")
-    auto_login.timeout_s = 1
+    auto_login.timeout_s = 0
 
     ok = auto_login.attempt(session.page("colmena"), "colmena", lambda page: False)
 
