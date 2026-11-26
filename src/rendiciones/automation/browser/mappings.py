@@ -360,15 +360,16 @@ class ColmenaComprobante:
 
 
 def colmena_comprobantes(body: Any) -> list[ColmenaComprobante]:
-    """Comprobantes listed by ``reembolsos/`` (one per reembolso of the solicitud)."""
+    """Comprobantes listed by ``reembolsos/`` (one per reembolso of the solicitud).
+
+    Raises ``PortalError`` on a reembolso without a numeric folio, so none is left out.
+    """
     items = body if isinstance(body, list) else []
     result: list[ColmenaComprobante] = []
     for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        folio = str(item.get("folio") or "").strip()
+        folio = str(item.get("folio") or "").strip() if isinstance(item, Mapping) else ""
         if not folio.isdigit():
-            continue
+            raise PortalError("Colmena listó un reembolso sin folio reconocible; revisa el portal")
         result.append(
             ColmenaComprobante(folio=int(folio), reembolso=str(item.get("codDocTipo")) == "1")
         )

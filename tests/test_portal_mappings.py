@@ -289,7 +289,6 @@ def test_assign_chubb_documents_reports_missing_obligatorios() -> None:
                 ColmenaComprobante(333444, reembolso=False),
             ],
         ),
-        ([{"folio": None, "codDocTipo": 1}, "x", {"codDocTipo": 1}], []),
         ({"response": []}, []),
         (None, []),
     ],
@@ -297,6 +296,15 @@ def test_assign_chubb_documents_reports_missing_obligatorios() -> None:
 def test_colmena_comprobantes(body: object, expected: list[ColmenaComprobante]) -> None:
     """Each reembolso with a numeric folio is one comprobante; codDocTipo 1 picks the template."""
     assert colmena_comprobantes(body) == expected
+
+
+@pytest.mark.parametrize("item", [{"folio": None, "codDocTipo": 1}, {"codDocTipo": 1}, "x"])
+def test_colmena_comprobantes_rejects_a_reembolso_without_folio(item: object) -> None:
+    """A listed reembolso with no usable folio fails instead of being left out."""
+    body = [{"folio": 111222, "codDocTipo": 1}, item]
+
+    with pytest.raises(PortalError, match="sin folio"):
+        colmena_comprobantes(body)
 
 
 # ------------------------------------------------------------------- status/dates
