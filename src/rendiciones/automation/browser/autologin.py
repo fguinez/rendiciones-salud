@@ -110,7 +110,8 @@ def describe_page(page: Page) -> str:
     parts = urlsplit(page.url)
     route = parts.fragment.split("?", 1)[0].split("&", 1)[0]
     shown = f"#{route}" if route.startswith("/") else ""
-    return f"{parts.netloc}{parts.path}{shown}"
+    host = f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname or ""
+    return f"{host}{parts.path}{shown}"
 
 
 def _submit(page: Page, field: Locator) -> None:
@@ -242,7 +243,8 @@ class AutoLogin:
             except Exception as exc:
                 logger.warning("%s auto-login error: %s", portal, type(exc).__name__)
                 step = Step.IDLE
-            if step is Step.REJECTED:
+            # A portal that reads its own answer decides; a slow reply is not a rejection.
+            if step is Step.REJECTED and check_failure is None:
                 failure = LoginFailure(
                     LoginResult.REJECTED, "El portal rechazó el usuario o la contraseña guardados"
                 )
@@ -272,8 +274,8 @@ class AutoLogin:
         )
 
     def _fail(self, page: Page, portal: str, failure: LoginFailure) -> None:
-        detail = failure.detail
         shot = self._take_screenshot(page, portal)
+        detail = failure.detail
         if shot is not None:
             detail = f"{detail} (captura: {shot.name})"
         self.log.record(portal, failure.result, detail)
@@ -286,6 +288,6 @@ class AutoLogin:
             return take_screenshot(
                 page, self.screens_dir, f"login-{portal}-{stamp(datetime.now())}"
             )
-        except PlaywrightError as exc:
+        except (PlaywrightError, OSError) as exc:
             logger.warning("%s login screenshot failed: %s", portal, type(exc).__name__)
             return None
