@@ -13,6 +13,7 @@ from conftest import PdfFactory, fixture_text, render_pdf
 from rendiciones.config import Settings
 from rendiciones.db import Repository, utcnow
 from rendiciones.domain import DocRole, DocType, DocumentEdit, Status, TipoPrestacion
+from rendiciones.pipeline import Portal, record_submission
 from rendiciones.services import MoveResult, NotEditableError, RendicionService
 from rendiciones.storage import UploadError
 
@@ -380,10 +381,47 @@ def test_comprobantes_of_an_earlier_colmena_request_are_left_out(
     """Once the rendición is sent to Colmena again, the old request's comprobante stops counting."""
     pdf = io.BytesIO(render_pdf("COMPROBANTE DE PRUEBA 28.000"))
     service.attach_file(lista_rendicion, pdf, "comprobante.pdf", DocRole.BONIFICACION_COLMENA)
-    resent = {"colmena_submitted_at": utcnow() + timedelta(minutes=1)}
+    resent = {
+        "colmena_submitted_at": utcnow() + timedelta(minutes=1),
+        "bonificacion_document_id": None,
+    }
     service.repo.record_fields(lista_rendicion, resent, kind="colmena_enviada", detail={})
 
     view = service.repo.get_rendicion(lista_rendicion)
 
     assert view.bonificacion_documents == ()
+    assert view.bonificacion_document is None
+
+
+def test_a_comprobante_stored_before_the_submission_counts_once_attached(
+    service: RendicionService, lista_rendicion: int, pdf_of: PdfFactory
+) -> None:
+    """A file already in the app counts as the comprobante once attached after submitting."""
+    record_submission(service, lista_rendicion, Portal.COLMENA, "COLMENA-00001")
+    boleta = pdf_of("boleta_laboratorio")
+    service.attach_file(
+        lista_rendicion, io.BytesIO(boleta), "comprobante.pdf", DocRole.BONIFICACION_COLMENA
+    )
+
+    view = service.repo.get_rendicion(lista_rendicion)
+
+    assert view.bonificacion_document is not None
+    assert len(view.bonificacion_documents) == 1
+
+
+def test_attach_files_rollback_puts_reused_documents_back(
+    service: RendicionService, lista_rendicion: int, pdf_of: PdfFactory, tmp_path: Path
+) -> None:
+    """A failed batch returns a reused document to its old role and clears the comprobante."""
+    reused = tmp_path / "boleta.pdf"
+    reused.write_bytes(pdf_of("boleta_laboratorio"))
+    empty = tmp_path / "vacio.pdf"
+    empty.write_bytes(b"")
+    roles_before = {d.id: d.role for d in service.repo.get_rendicion(lista_rendicion).documents}
+
+    with pytest.raises(UploadError):
+        service.attach_files(lista_rendicion, [reused, empty], DocRole.BONIFICACION_COLMENA)
+
+    view = service.repo.get_rendicion(lista_rendicion)
+    assert {d.id: d.role for d in view.documents} == roles_before
     assert view.bonificacion_document is None

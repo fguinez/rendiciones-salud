@@ -105,6 +105,7 @@ def record_submission(
             {
                 "colmena_request_id": request_id,
                 "colmena_submitted_at": now,
+                "bonificacion_document_id": None,
             },
         )
     else:
