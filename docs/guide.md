@@ -128,6 +128,12 @@ Seguridad ante dobles envíos:
   siguiente pasada no reenvía: busca la solicitud en el portal y la asocia, o deja la
   rendición en `error` pidiendo revisar. Tras revisar el portal:
   `uv run rendiciones clear-marker ID colmena` (o `chubb`) y vuelve la rendición a `lista`.
+- En Colmena, antes de guardar ese marcador se comprueba que se pueda presionar Continuar.
+  Si algo lo tapa, la rendición pasa a `error` sin marcador (no se envió nada) y puedes
+  reintentar tras revisar el portal.
+- Si un envío a Colmena falla (salvo por sesión expirada), se guarda una captura
+  `colmena-ID-error-<fecha>.png` en `screenshots/` dentro de la carpeta de datos, solo en tu
+  equipo.
 
 Si la sesión expiró y no se pudo volver a iniciar con la cuenta guardada, la rendición en
 curso pasa a `error` con el mensaje "inicia sesión desde Cuentas o con
