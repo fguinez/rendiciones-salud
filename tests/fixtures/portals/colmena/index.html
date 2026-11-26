@@ -218,14 +218,18 @@ async function renderConsultar() {
     if (item.glsEstado === "Aprobada") {
       card.innerHTML += '<app-boton-colmena label="Comprobante reembolso" theme="boton-descargar-reembolso"><div class="wrapper">Comprobante reembolso</div></app-boton-colmena>';
       card.querySelector(".wrapper").onclick = async () => {
-        const res = await fetch("/services/afiliados/private/report", {method: "POST",
-          headers: {"Content-Type": "application/json", "X-Auth-Token": token()},
-          body: JSON.stringify({pdfName: "DetalleReembolsoWeb", nombre: "comprobante", opcion: "pdf",
-                                parametros: {folioSolicitud: item.solIdn}})});
-        const blob = await res.blob();
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob); a.download = "comprobante.pdf";
-        document.body.appendChild(a); a.click(); a.remove();
+        const headers = {"Content-Type": "application/json", "X-Auth-Token": token()};
+        const list = await fetch("/services/afiliados/private/reembolsos/", {method: "POST", headers,
+          body: JSON.stringify({folioSolicitud: item.solIdn, docId: 0})});
+        for (const r of await list.json()) {
+          const res = await fetch("/services/afiliados/private/report", {method: "POST", headers,
+            body: JSON.stringify({pdfName: r.codDocTipo == 1 ? "DetalleReembolsoWeb" : "DetalleOtroEgresoWeb",
+                                  nombre: "comprobante", opcion: "pdf", parametros: {folioSolicitud: r.folio}})});
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob); a.download = "comprobante.pdf";
+          document.body.appendChild(a); a.click(); a.remove();
+        }
       };
     }
     cards.appendChild(card);

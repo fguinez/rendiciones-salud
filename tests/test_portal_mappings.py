@@ -28,6 +28,7 @@ from rendiciones.automation.browser.mappings import (
     COLMENA_PRESTACIONES,
     ChubbCard,
     ChubbProduct,
+    ColmenaComprobante,
     ColmenaSlot,
     assign_chubb_documents,
     assign_colmena_documents,
@@ -35,6 +36,7 @@ from rendiciones.automation.browser.mappings import (
     chubb_date_input,
     chubb_date_shown,
     chubb_prestacion,
+    colmena_comprobantes,
     colmena_duplicates,
     colmena_hints,
     colmena_prestacion,
@@ -239,7 +241,7 @@ def test_assign_colmena_documents_drops_no_solicitado() -> None:
 
 
 def test_assign_chubb_documents() -> None:
-    """Comprobante → Bono, boleta → Boleta, orden → Derivación, rest (liquidación too) → Otros."""
+    """Comprobantes → Bono, boleta → Boleta, orden → Derivación, rest (liquidación too) → Otros."""
     cards = [
         ChubbCard("Bono o Bonificación Isapre/Fonasa", True),
         ChubbCard("Boleta o factura", False),
@@ -255,10 +257,10 @@ def test_assign_chubb_documents() -> None:
             doc(3, DocType.INFORME_EXAMEN),
             doc(4, DocType.DOCUMENTO_CHUBB),
         ],
-        bono,
+        [bono, doc(10, DocType.COMPROBANTE_BONIFICACION, DocRole.BONIFICACION_COLMENA)],
     )
     assert {t: [d.id for d in ds] for t, ds in result.items()} == {
-        "Bono o Bonificación Isapre/Fonasa": [9],
+        "Bono o Bonificación Isapre/Fonasa": [9, 10],
         "Boleta o factura": [1],
         "Derivación del médico": [2],
         "Otros": [3, 4],
@@ -274,7 +276,27 @@ def test_assign_chubb_documents_reports_missing_obligatorios() -> None:
     ]
     bono = doc(9, DocType.COMPROBANTE_BONIFICACION, DocRole.BONIFICACION_COLMENA)
     with pytest.raises(PortalError, match="Receta Médica"):
-        assign_chubb_documents(cards, [doc(1, DocType.BOLETA_ELECTRONICA)], bono)
+        assign_chubb_documents(cards, [doc(1, DocType.BOLETA_ELECTRONICA)], [bono])
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            [{"folio": 111222, "codDocTipo": 1}, {"folio": "333444", "codDocTipo": 2}],
+            [
+                ColmenaComprobante(111222, reembolso=True),
+                ColmenaComprobante(333444, reembolso=False),
+            ],
+        ),
+        ([{"folio": None, "codDocTipo": 1}, "x", {"codDocTipo": 1}], []),
+        ({"response": []}, []),
+        (None, []),
+    ],
+)
+def test_colmena_comprobantes(body: object, expected: list[ColmenaComprobante]) -> None:
+    """Each reembolso with a numeric folio is one comprobante; codDocTipo 1 picks the template."""
+    assert colmena_comprobantes(body) == expected
 
 
 # ------------------------------------------------------------------- status/dates

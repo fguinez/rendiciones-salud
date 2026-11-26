@@ -29,16 +29,17 @@ def uso_excedente(text: str) -> int:
 
 
 def colmena_excedente(rendicion: RendicionView) -> int:
-    """Excedentes Colmena paid with the bonificación of ``rendicion`` (0 when unknown)."""
-    doc = rendicion.bonificacion_document
-    if doc is None or doc.mime != "application/pdf":
-        return 0
-    try:
-        return uso_excedente(pdf_text(doc.path))
-    except Exception as exc:
-        name = type(exc).__name__
-        logger.warning("rendicion %d: comprobante unreadable (%s)", rendicion.id, name)
-        return 0
+    """Excedentes Colmena paid across the comprobantes of ``rendicion`` (0 when unknown)."""
+    total = 0
+    for doc in rendicion.bonificacion_documents:
+        if doc.mime != "application/pdf":
+            continue
+        try:
+            total += uso_excedente(pdf_text(doc.path))
+        except Exception as exc:
+            name = type(exc).__name__
+            logger.warning("rendicion %d: comprobante unreadable (%s)", rendicion.id, name)
+    return total
 
 
 def expected_transfer(insurer: str, rendicion: RendicionView) -> int | None:

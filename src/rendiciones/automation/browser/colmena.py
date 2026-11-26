@@ -1,4 +1,4 @@
-"""Colmena (Isapre) browser client: submit, check_status, download_bonificacion.
+"""Colmena (Isapre) browser client: submit, check_status, download_bonificaciones.
 
 Flow and selectors follow docs/portals.md §1. Important properties of the portal:
 
@@ -47,9 +47,11 @@ from rendiciones.automation.browser.common import (
 from rendiciones.automation.browser.files import UploadFile, prepare_colmena
 from rendiciones.automation.browser.mappings import (
     SLOT_LABELS,
+    ColmenaComprobante,
     ColmenaPrestacion,
     ColmenaSlot,
     assign_colmena_documents,
+    colmena_comprobantes,
     colmena_duplicates,
     colmena_hints,
     colmena_prestacion,
@@ -67,7 +69,7 @@ logger = logging.getLogger(__name__)
 
 PORTAL = "colmena"
 
-# Both scripts run inside the logged-in page, so the auth token never reaches Python.
+# These scripts run inside the logged-in page, so the auth token never reaches Python.
 # The header choice mirrors Colmena's own HTTP interceptor.
 _AUTH_HEADERS = """
 const authHeaders = (key) => {
@@ -95,6 +97,22 @@ _FETCH_JSON = (
   if (!auth) { return {status: 0, body: null}; }
   const r = await fetch(url, {headers: {...auth, 'Accept': 'application/json'},
                               credentials: 'include'});
+  let body = null;
+  try { body = await r.json(); } catch (e) { body = null; }
+  return {status: r.status, body: body};
+}
+"""
+)
+
+_POST_JSON = (
+    "async ([url, key, payload]) => {"
+    + _AUTH_HEADERS
+    + """
+  const auth = authHeaders(key);
+  if (!auth) { return {status: 0, body: null}; }
+  const r = await fetch(url, {method: 'POST', credentials: 'include',
+    headers: {...auth, 'Content-Type': 'application/json', 'Accept': 'application/json'},
+    body: JSON.stringify(payload)});
   let body = null;
   try { body = await r.json(); } catch (e) { body = null; }
   return {status: r.status, body: body};
@@ -688,37 +706,60 @@ class ColmenaBrowserClient:
             )
         return parse_colmena_status(item)
 
-    def download_bonificacion(self, request_id: str, dest: Path) -> Path:
-        """Download the 'Comprobante reembolso' PDF into ``dest`` (0600)."""
-        return self._retry_after_login(lambda: self._download_bonificacion(request_id, dest))
+    def download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]:
+        """Download every 'Comprobante reembolso' PDF of the solicitud into ``dest`` (0600)."""
+        return self._retry_after_login(lambda: self._download_bonificaciones(request_id, dest))
 
-    def _download_bonificacion(self, request_id: str, dest: Path) -> Path:
+    def _download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]:
         folio = request_id.strip()
         if not folio.isdigit():
             raise PortalError("El número de solicitud de Colmena no es numérico")
         page = self._open(self.urls.consultar)
+        # The report wants each reembolso's own folio, not the solicitud number.
+        query = {"folioSolicitud": int(folio), "docId": 0}
+        listing = page.evaluate(_POST_JSON, [self.urls.reembolsos, ColmenaSel.TOKEN_KEY, query])
+        self._check_answer(page, listing, "los reembolsos")
+        comprobantes = colmena_comprobantes(listing.get("body"))
+        if not comprobantes:
+            raise PortalError("Colmena aún no lista reembolsos con comprobante para esta solicitud")
+        pdfs = [(c.folio, self._fetch_comprobante(page, c)) for c in comprobantes]
+        ensure_private_dir(dest)
+        targets: list[Path] = []
+        for reembolso, pdf in pdfs:
+            target = dest / f"bonificacion-colmena-{folio}-{reembolso}.pdf"
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(pdf)
+            target.chmod(FILE_MODE)
+            targets.append(target)
+        logger.info("colmena: %d comprobantes downloaded", len(targets))
+        return targets
+
+    def _fetch_comprobante(self, page: Page, comprobante: ColmenaComprobante) -> bytes:
+        name = (
+            ColmenaSel.REPORT_PDF_NAME
+            if comprobante.reembolso
+            else ColmenaSel.REPORT_PDF_NAME_OTRO_EGRESO
+        )
         payload = {
-            "pdfName": ColmenaSel.REPORT_PDF_NAME,
+            "pdfName": name,
             "nombre": "comprobante",
             "opcion": "pdf",
-            "parametros": {"folioSolicitud": int(folio)},
+            "parametros": {"folioSolicitud": comprobante.folio},
         }
         result = page.evaluate(_FETCH_REPORT, [self.urls.report, ColmenaSel.TOKEN_KEY, payload])
+        self._check_answer(page, result, "el comprobante")
+        pdf = base64.b64decode(str(result.get("pdf") or ""))
+        if not pdf.startswith(b"%PDF-"):
+            raise PortalError("Colmena no entregó un comprobante en PDF para esta solicitud")
+        return pdf
+
+    def _check_answer(self, page: Page, result: Any, what: str) -> None:
+        """Raise on a dead session or an HTTP error from an in-page request."""
         status = int(result.get("status", 0)) if isinstance(result, dict) else 0
         if status in (0, 401, 403):
             if status:
                 page.evaluate("k => window.localStorage.removeItem(k)", ColmenaSel.TOKEN_KEY)
             raise SessionExpiredError(PORTAL)
         if status != 200:
-            raise PortalError(f"Colmena respondió HTTP {status} al pedir el comprobante")
-        pdf = base64.b64decode(str(result.get("pdf") or ""))
-        if not pdf.startswith(b"%PDF-"):
-            raise PortalError("Colmena no entregó un comprobante en PDF para esta solicitud")
-        ensure_private_dir(dest)
-        target = dest / f"bonificacion-colmena-{folio}.pdf"
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(pdf)
-        target.chmod(FILE_MODE)
-        logger.info("colmena: comprobante downloaded (%d bytes)", len(pdf))
-        return target
+            raise PortalError(f"Colmena respondió HTTP {status} al pedir {what}")

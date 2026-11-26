@@ -351,6 +351,30 @@ def find_colmena_request(
     return None
 
 
+@dataclass(frozen=True)
+class ColmenaComprobante:
+    """One comprobante to ask the report service for."""
+
+    folio: int
+    reembolso: bool  # ``codDocTipo`` 1; otherwise Colmena files it as an "otro egreso"
+
+
+def colmena_comprobantes(body: Any) -> list[ColmenaComprobante]:
+    """Comprobantes listed by ``reembolsos/`` (one per reembolso of the solicitud)."""
+    items = body if isinstance(body, list) else []
+    result: list[ColmenaComprobante] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        folio = str(item.get("folio") or "").strip()
+        if not folio.isdigit():
+            continue
+        result.append(
+            ColmenaComprobante(folio=int(folio), reembolso=str(item.get("codDocTipo")) == "1")
+        )
+    return result
+
+
 def colmena_duplicates(
     items: Iterable[Mapping[str, Any]],
     *,
@@ -507,11 +531,11 @@ _KIND_TYPES: dict[str, frozenset[DocType]] = {
 def assign_chubb_documents(
     cards: Sequence[ChubbCard],
     support: Sequence[DocumentView],
-    bonificacion: DocumentView,
+    bonificaciones: Sequence[DocumentView],
 ) -> dict[str, list[DocumentView]]:
     """Map documents onto Chubb document cards (keyed by card title).
 
-    The Colmena comprobante goes to the "Bono" card; each support document goes to the
+    The Colmena comprobantes go to the "Bono" card; each support document goes to the
     first card of its kind, leftovers (a previous Chubb liquidación included) to "Otros".
     Raises ``PortalError`` listing any obligatorio card that would stay empty.
     """
@@ -520,7 +544,7 @@ def assign_chubb_documents(
         by_kind.setdefault(_card_kind(card.title), card.title)
     result: dict[str, list[DocumentView]] = {card.title: [] for card in cards}
     if "all" in by_kind:
-        result[by_kind["all"]] = [bonificacion, *support]
+        result[by_kind["all"]] = [*bonificaciones, *support]
         placed = True
     else:
         placed = False
@@ -528,7 +552,7 @@ def assign_chubb_documents(
         bono_card = by_kind.get("bono") or by_kind.get("otros")
         if bono_card is None:
             raise PortalError("El formulario de Chubb no tiene dónde adjuntar el bono Isapre")
-        result[bono_card].append(bonificacion)
+        result[bono_card].extend(bonificaciones)
         leftovers: list[DocumentView] = []
         for doc in support:
             doc_type = doc.extraction.doc_type

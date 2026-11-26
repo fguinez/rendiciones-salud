@@ -253,6 +253,16 @@ class RendicionView:
         return None
 
     @property
+    def bonificacion_documents(self) -> tuple[DocumentView, ...]:
+        """Every Colmena comprobante attached (one per reembolso), in attach order."""
+        return tuple(
+            sorted(
+                (d for d in self.documents if d.role == DocRole.BONIFICACION_COLMENA),
+                key=lambda d: d.id,
+            )
+        )
+
+    @property
     def chubb_response_document(self) -> DocumentView | None:
         """Chubb's liquidación for the current request (older ones answer earlier requests)."""
         responses = [d for d in self.documents if d.role == DocRole.RESPUESTA_CHUBB]

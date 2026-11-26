@@ -45,6 +45,11 @@ class ColmenaUrls:
         return f"{self.api}reembolso-web/consulta/ultimas/{folio}"
 
     @property
+    def reembolsos(self) -> str:
+        """Reembolsos paid for a solicitud: each carries the folio its comprobante uses."""
+        return f"{self.api}reembolsos/"
+
+    @property
     def report(self) -> str:
         """PDF report service behind the 'Comprobante reembolso' button."""
         return f"{self.api}report"
@@ -87,7 +92,9 @@ class ColmenaSel:
     EXCEDENTES_YES = 'p-radioButton[formcontrolname="excedentesDecision"][value="S"]'
     RADIO_BOX = ".ui-radiobutton-box"
     CONFIRMATION = "div.detalleUsoExcedentes"
+    # Report template per reembolso: ``codDocTipo`` 1 is a reembolso, anything else an egreso.
     REPORT_PDF_NAME = "DetalleReembolsoWeb"
+    REPORT_PDF_NAME_OTRO_EGRESO = "DetalleOtroEgresoWeb"
 
     # Visible block labels → our upload slots (matched on normalised text).
     BLOCK_LABELS: tuple[tuple[str, str], ...] = (

@@ -20,6 +20,9 @@ PORTALS_DIR = Path(__file__).parent / "fixtures" / "portals"
 TOKEN = "tok-fixture-123"
 COLMENA_API = "/services/afiliados/private/reembolso-web/"
 COLMENA_REPORT = "/services/afiliados/private/report"
+COLMENA_REEMBOLSOS = "/services/afiliados/private/reembolsos/"
+# Reembolso folios live in their own series, apart from the solicitud numbers.
+REEMBOLSO_FOLIO_OFFSET = 500000
 CHUBB_LIQUIDATION = "/api/charles-taylor/liquidation-document/"
 REPORT_PDF = (
     b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
@@ -53,6 +56,9 @@ class PortalState:
     continue_blocked: bool = False
     request_number: str = "987654"
     colmena_requests: list[dict[str, Any]] = field(default_factory=list)
+    # Reembolsos per solicitud; unset, an approved one has a single reembolso (codDocTipo 1).
+    colmena_reembolsos: dict[int, list[dict[str, Any]]] | None = None
+    colmena_report_empty: bool = False
     chubb_expired: bool = False
     chubb_sso_pending: bool = False
     denuncio: str = "4455667788"
@@ -180,17 +186,45 @@ class _Handler(BaseHTTPRequestHandler):
             state.colmena_expired = False
             self._json({"codigoRetorno": 0})
 
-    def _report(self, body: bytes) -> None:
-        """Comprobante PDF for an approved request; an empty body for anything else."""
+    def _reembolsos(self) -> dict[int, list[dict[str, Any]]]:
         state = self.server.state
-        if state.colmena_expired or self.headers.get("X-Auth-Token") != TOKEN:
+        if state.colmena_reembolsos is not None:
+            return state.colmena_reembolsos
+        return {
+            int(i["solIdn"]): [
+                {"folio": int(i["solIdn"]) + REEMBOLSO_FOLIO_OFFSET, "codDocTipo": 1}
+            ]
+            for i in state.colmena_requests
+            if i.get("estado") == 6
+        }
+
+    def _authorized(self) -> bool:
+        if self.server.state.colmena_expired or self.headers.get("X-Auth-Token") != TOKEN:
             self._json({"code": 401, "message": "unauthorized"}, 401)
+            return False
+        return True
+
+    def _list_reembolsos(self, body: bytes) -> None:
+        """Reembolsos of a solicitud, as Colmena lists them before the comprobante."""
+        if self._authorized():
+            solicitud = int(json.loads(body or b"{}").get("folioSolicitud") or 0)
+            self._json(self._reembolsos().get(solicitud, []))
+
+    def _report(self, body: bytes) -> None:
+        """Comprobante for a reembolso folio and its template; an empty body for anything else."""
+        if not self._authorized():
             return
-        folio = str(json.loads(body or b"{}").get("parametros", {}).get("folioSolicitud"))
-        approved = any(
-            str(i.get("solIdn")) == folio and i.get("estado") == 6 for i in state.colmena_requests
+        request = json.loads(body or b"{}")
+        folio = request.get("parametros", {}).get("folioSolicitud")
+        matches = any(
+            r["folio"] == folio
+            and request.get("pdfName")
+            == ("DetalleReembolsoWeb" if r["codDocTipo"] == 1 else "DetalleOtroEgresoWeb")
+            for items in self._reembolsos().values()
+            for r in items
         )
-        self._send(200, REPORT_PDF if approved else b"", "application/pdf")
+        ok = matches and not self.server.state.colmena_report_empty
+        self._send(200, REPORT_PDF + str(folio).encode() if ok else b"", "application/pdf")
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -208,6 +242,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"code": 0})
         elif path == COLMENA_REPORT:
             self._report(body)
+        elif path == COLMENA_REEMBOLSOS:
+            self._list_reembolsos(body)
         elif path == "/api/refund":
             self._json({"data": "ciphertext"})
         else:

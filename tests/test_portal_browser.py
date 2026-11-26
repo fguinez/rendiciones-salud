@@ -637,7 +637,7 @@ def test_colmena_existing_request_blocks_duplicate(
 def test_colmena_check_status_and_download(
     portals: PortalServer, make_colmena: Callable[..., ColmenaBrowserClient], tmp_path: Path
 ) -> None:
-    """Status comes from the JSON; the comprobante downloads as a 0600 PDF."""
+    """Status comes from the JSON; the comprobante downloads as a 0600 PDF via its reembolso."""
     portals.state.colmena_requests = [
         {"solIdn": 987654, "estado": 6, "glsEstado": "Aprobada", "solMonto": 16800},
         {"solIdn": 987655, "estado": 7, "glsEstado": "Rechazada", "solObservacionesCliente": "x"},
@@ -652,16 +652,30 @@ def test_colmena_check_status_and_download(
     assert client.check_status("987656").state == PortalState.PENDING
 
     dest = tmp_path / "dl"
-    path = client.download_bonificacion("987654", dest)
+    [path] = client.download_bonificaciones("987654", dest)
     assert path.read_bytes().startswith(b"%PDF-")
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_colmena_download_fetches_every_reembolso_with_its_template(
+    portals: PortalServer, make_colmena: Callable[..., ColmenaBrowserClient], tmp_path: Path
+) -> None:
+    """Each reembolso gets its own comprobante, asked by its folio and codDocTipo template."""
+    portals.state.colmena_requests = [{"solIdn": 987654, "estado": 6, "glsEstado": "Aprobada"}]
+    portals.state.colmena_reembolsos = {
+        987654: [{"folio": 111222, "codDocTipo": 1}, {"folio": 333444, "codDocTipo": 2}]
+    }
+
+    paths = make_colmena().download_bonificaciones("987654", tmp_path / "dl")
+
+    assert [p.read_bytes()[-6:] for p in paths] == [b"111222", b"333444"]
 
 
 @pytest.mark.parametrize(
     ("request_id", "match"),
     [
-        ("987656", "no entregó un comprobante"),
-        ("123", "no entregó un comprobante"),
+        ("987656", "aún no lista reembolsos"),
+        ("123", "aún no lista reembolsos"),
         ("A-1", "numérico"),
     ],
 )
@@ -677,7 +691,21 @@ def test_colmena_download_without_comprobante_fails(
     dest = tmp_path / "dl"
 
     with pytest.raises(PortalError, match=match):
-        make_colmena().download_bonificacion(request_id, dest)
+        make_colmena().download_bonificaciones(request_id, dest)
+
+    assert not dest.exists() or not any(dest.iterdir())
+
+
+def test_colmena_download_without_pdf_fails(
+    portals: PortalServer, make_colmena: Callable[..., ColmenaBrowserClient], tmp_path: Path
+) -> None:
+    """A listed reembolso whose report comes back empty raises and writes nothing."""
+    portals.state.colmena_requests = [{"solIdn": 987654, "estado": 6, "glsEstado": "Aprobada"}]
+    portals.state.colmena_report_empty = True
+    dest = tmp_path / "dl"
+
+    with pytest.raises(PortalError, match="no entregó un comprobante"):
+        make_colmena().download_bonificaciones("987654", dest)
 
     assert not dest.exists() or not any(dest.iterdir())
 
@@ -690,7 +718,7 @@ def test_colmena_download_with_dead_token_reports_expired_session(
     portals.state.colmena_expires_after_load = True
 
     with pytest.raises(SessionExpiredError, match="rendiciones login colmena"):
-        make_colmena().download_bonificacion("987654", tmp_path / "dl")
+        make_colmena().download_bonificaciones("987654", tmp_path / "dl")
 
 
 def test_login_detects_colmena_session(

@@ -86,10 +86,10 @@ class PortalClient(Protocol):
 
 @runtime_checkable
 class ColmenaClient(PortalClient, Protocol):
-    """Colmena additionally provides the comprobante de bonificación."""
+    """Colmena additionally provides the comprobantes de bonificación."""
 
-    def download_bonificacion(self, request_id: str, dest: Path) -> Path:
-        """Download the comprobante into directory ``dest`` and return the file path."""
+    def download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]:
+        """Download every comprobante of the request into directory ``dest`` (one per reembolso)."""
         ...
 
 
