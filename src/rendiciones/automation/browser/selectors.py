@@ -79,7 +79,7 @@ class ColmenaSel:
     ATTACHED_FILE = ".archivos-adjunto .archivo-item"
     VALIDATION_URL_PART = "validacion-documento"
     GROWL_ERROR = "p-growl .ui-growl-message-error"
-    GROWL_MESSAGE = "p-growl .ui-growl-message-error, p-growl .ui-growl-message-warn"
+    GROWL_MESSAGE = f"{GROWL_ERROR}, p-growl .ui-growl-message-warn"
     TERMS_CHECKBOX = ".box-terminos-condiciones p-checkbox[binary=true]"
     TERMS_BOX = ".ui-chkbox-box"
     TERMS_INPUT = "input[type=checkbox]"
