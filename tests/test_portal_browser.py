@@ -422,6 +422,31 @@ def test_auto_login_reports_a_page_that_never_loaded(
     assert (last["result"], last["detail"].startswith("El portal no cargó")) == ("failed", True)
 
 
+def test_colmena_unreachable_login_page_is_recorded(
+    service: RendicionService,
+    settings: Settings,
+    make_auto_login: Callable[[str], AutoLogin],
+    session: BrowserSession,
+) -> None:
+    """A login page that fails to load is logged as such, with a screenshot."""
+    auto_login = make_auto_login("clave-de-prueba")
+    auto_login.timeout_s = 0
+    client = ColmenaBrowserClient(
+        session,
+        service.repo,
+        data_dir=settings.data_dir,
+        urls=ColmenaUrls(base="http://127.0.0.1:9/afiliados/"),
+        auto_login=auto_login,
+    )
+
+    ok = client._log_in(session.page("colmena"))
+
+    last = LoginLog(settings.data_dir / STATE_FILE).read()["colmena"]
+    assert not ok
+    assert last["detail"].startswith("El portal no cargó")
+    assert list((settings.data_dir / "screenshots").glob("login-colmena-*.png"))
+
+
 def test_colmena_interrupted_submit_is_reconciled_not_resent(
     service: RendicionService,
     lab_rendicion: int,

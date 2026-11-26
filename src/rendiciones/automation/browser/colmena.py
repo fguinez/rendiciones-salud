@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, Request, Response
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -246,8 +247,12 @@ class ColmenaBrowserClient:
         if self.auto_login is None or recent:
             return False
         self._login_tried_at = time.monotonic()
-        page.goto(self.urls.login_form, wait_until="domcontentloaded")
-        page.reload(wait_until="domcontentloaded")
+        try:
+            page.goto(self.urls.login_form, wait_until="domcontentloaded")
+            page.reload(wait_until="domcontentloaded")
+        except PlaywrightError as exc:
+            # ``attempt`` still runs: it records "the portal did not load" with a screenshot.
+            logger.warning("colmena login page did not load: %s", type(exc).__name__)
         return self.auto_login.attempt(
             page, PORTAL, lambda p: is_logged_in(p, self.urls), check_failure=login_failure
         )
