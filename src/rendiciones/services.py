@@ -382,7 +382,7 @@ class RendicionService:
             for path in paths:
                 attached.append(self._attach(rendicion_id, path, path.name, role))
         except Exception:
-            for doc, before in attached:
+            for doc, before in reversed(attached):
                 if before is None:
                     self.repo.delete_document(doc.id)
                     self.store.delete(doc.path)
