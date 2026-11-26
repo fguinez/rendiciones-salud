@@ -61,6 +61,7 @@ class LoginFailure:
 
 
 FailureCheck = Callable[[Page], LoginFailure | None]
+NOT_LOADED = LoginFailure(LoginResult.FAILED, "El portal no cargó (¿sin conexión o portal caído?)")
 
 
 class Step(StrEnum):
@@ -205,10 +206,12 @@ class AutoLogin:
         logged_in: Callable[[Page], bool],
         *,
         check_failure: FailureCheck | None = None,
+        load_failed: bool = False,
     ) -> bool:
         """Try once to log in on ``page``; True when ``logged_in`` turns true.
 
-        ``check_failure`` reads the portal's own answer once the form was submitted.
+        ``check_failure`` reads the portal's own answer once the form was submitted;
+        ``load_failed`` says the caller could not open the login page.
         """
         try:
             credential = self.store.get(portal)
@@ -219,6 +222,9 @@ class AutoLogin:
             return False
         if self.log.blocked(portal, credential):
             logger.warning("%s auto-login skipped: last attempt was rejected", portal)
+            return False
+        if load_failed:
+            self._fail(page, portal, NOT_LOADED)
             return False
         filler = LoginFiller(
             credential, rejected_after_s=self.rejected_after_s, guess_after_s=self.guess_after_s
@@ -259,9 +265,7 @@ class AutoLogin:
                 "El portal pidió algo más (¿código de verificación?): inicia sesión desde Cuentas",
             )
         if not page.url.startswith(("http://", "https://")):
-            return LoginFailure(
-                LoginResult.FAILED, "El portal no cargó (¿sin conexión o portal caído?)"
-            )
+            return NOT_LOADED
         return LoginFailure(
             LoginResult.FAILED,
             f"No se encontró el formulario de inicio de sesión en {describe_page(page)}",

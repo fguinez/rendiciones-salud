@@ -247,14 +247,20 @@ class ColmenaBrowserClient:
         if self.auto_login is None or recent:
             return False
         self._login_tried_at = time.monotonic()
+        load_failed = False
         try:
             page.goto(self.urls.login_form, wait_until="domcontentloaded")
             page.reload(wait_until="domcontentloaded")
         except PlaywrightError as exc:
-            # ``attempt`` still runs: it records "the portal did not load" with a screenshot.
+            # ``attempt`` records the failed load with a screenshot instead of raising it.
             logger.warning("colmena login page did not load: %s", type(exc).__name__)
+            load_failed = True
         return self.auto_login.attempt(
-            page, PORTAL, lambda p: is_logged_in(p, self.urls), check_failure=read_login_failure
+            page,
+            PORTAL,
+            lambda p: is_logged_in(p, self.urls),
+            check_failure=read_login_failure,
+            load_failed=load_failed,
         )
 
     def _retry_after_login[T](self, operation: Callable[[], T]) -> T:
