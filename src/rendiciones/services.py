@@ -380,7 +380,9 @@ class RendicionService:
         attached: list[tuple[DocumentView, _Placement | None]] = []
         try:
             for path in paths:
-                attached.append(self._attach(rendicion_id, path, path.name, role))
+                attached.append(
+                    self._attach(rendicion_id, path, path.name, role, set_main=not attached)
+                )
         except Exception:
             for doc, before in reversed(attached):
                 if before is None:
@@ -401,9 +403,18 @@ class RendicionService:
         return [doc for doc, _ in attached]
 
     def _attach(
-        self, rendicion_id: int, source: Path | BinaryIO, filename: str, role: DocRole
+        self,
+        rendicion_id: int,
+        source: Path | BinaryIO,
+        filename: str,
+        role: DocRole,
+        *,
+        set_main: bool = True,
     ) -> tuple[DocumentView, _Placement | None]:
-        """Attach one file; also return where a reused document was before (None if new)."""
+        """Attach one file; also return where a reused document was before (None if new).
+
+        ``set_main=False`` attaches a Colmena comprobante without making it the main one.
+        """
         rendicion = self.repo.get_rendicion(rendicion_id)
         if isinstance(source, Path):
             stored = self.store.save_path(source)
@@ -434,7 +445,7 @@ class RendicionService:
                 rendicion_id=rendicion.id,
                 role=role,
             )
-        if role == DocRole.BONIFICACION_COLMENA:
+        if role == DocRole.BONIFICACION_COLMENA and set_main:
             self.repo.record_fields(
                 rendicion_id,
                 {"bonificacion_document_id": doc_id},

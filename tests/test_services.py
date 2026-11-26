@@ -375,6 +375,22 @@ def test_attach_files_is_all_or_nothing(
     assert sorted(service.settings.files_dir.rglob("*.pdf")) == files_before
 
 
+def test_attach_files_keeps_the_first_comprobante_as_main(
+    service: RendicionService, lista_rendicion: int, tmp_path: Path
+) -> None:
+    """The first file of a batch is the main comprobante and Chubb gets them in batch order."""
+    first = tmp_path / "comprobante_1.pdf"
+    first.write_bytes(render_pdf("COMPROBANTE DE PRUEBA 28.000"))
+    second = tmp_path / "comprobante_2.pdf"
+    second.write_bytes(render_pdf("COMPROBANTE DE PRUEBA 40.000"))
+
+    attached = service.attach_files(lista_rendicion, [first, second], DocRole.BONIFICACION_COLMENA)
+
+    view = service.repo.get_rendicion(lista_rendicion)
+    assert view.bonificacion_document_id == attached[0].id
+    assert [d.id for d in view.bonificacion_documents] == [d.id for d in attached]
+
+
 def test_comprobantes_of_an_earlier_colmena_request_are_left_out(
     service: RendicionService, lista_rendicion: int
 ) -> None:
