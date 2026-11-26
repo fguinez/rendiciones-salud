@@ -92,6 +92,7 @@ const TREE = {
   "TEA": {children: {"Psiquiatria": {docs: ["O", "P", "P"]}}}
 };
 const $ = (s) => document.querySelector(s);
+let droppedAttaches = 0;
 
 function token() { return JSON.parse(localStorage.getItem("coleman") || "{}").token; }
 function growl(msg) {
@@ -112,9 +113,11 @@ function dropdown(host, options, onPick) {
   host.querySelector(".ui-dropdown").onclick = () => { panel.hidden = !panel.hidden; };
 }
 
-function renderLevel(node, depth) {
+async function renderLevel(node, depth) {
   const subs = $("#subtypes");
   while (subs.children.length > depth) subs.removeChild(subs.lastChild);
+  // Like Colmena, the previous blocks stay on screen until the sub-tipo answer arrives.
+  await fetch(API + "sub-tipo-prestacion/" + depth, {headers: {"X-Auth-Token": token()}});
   $("#docs").innerHTML = "";
   if (node.docs) { renderDocs(node.docs); return; }
   const host = document.createElement("p-dropdown");
@@ -133,15 +136,25 @@ function renderDocs(req) {
     box.dataset.slot = names[i];
     box.innerHTML = '<label class="input-label">' + labels[i] + (r === "O" ? " *" : " (opcional)") + "</label>" +
       '<input class="file" type="file" name="doc1" hidden' + (i === 1 ? " multiple" : "") + ">" +
-      '<div class="box-adjuntar">Agregar</div><ul class="files"></ul>';
+      '<div class="box-adjuntar">Agregar</div><div class="archivos-adjunto"></div><ul class="files"></ul>';
     box.querySelector("input").onchange = async (ev) => {
+      const list = box.querySelector(".archivos-adjunto");
+      if (!ev.target.files.length) return;
+      if (droppedAttaches < FIXTURE.dropAttaches) { droppedAttaches += 1; return; }
+      list.innerHTML = "";
+      for (const f of ev.target.files) {
+        const item = document.createElement("div");
+        item.className = "archivo-item";
+        item.textContent = f.name;
+        list.appendChild(item);
+      }
       if (!FIXTURE.robot) return;
       const fd = new FormData();
       for (const f of ev.target.files) fd.append("documento", f);
       fd.append("tipoDocumento", names[i]);
       const r = await fetch("/asistente/validacion-documento", {method: "POST", body: fd, headers: {"X-Auth-Token": token()}});
       const body = await r.json();
-      if (body.code !== 0) { growl("El documento no pudo ser validado"); return; }
+      if (body.code !== 0) { list.innerHTML = ""; growl("El documento no pudo ser validado"); return; }
       const li = document.createElement("li"); li.className = "instacia-editar"; li.textContent = "archivo validado";
       box.querySelector(".files").appendChild(li);
     };
@@ -160,6 +173,7 @@ async function finaliza(decision) {
 
 function setupSolicitar() {
   $("#bank-continue").onclick = () => { $("#screen-bank").hidden = true; $("#screen-form").hidden = false; };
+  renderDocs(["O", "P", "P"]);
   dropdown($("#tipo"), Object.keys(TREE), (name) => renderLevel(TREE[name], 0));
   $("#terms-box").onclick = () => {
     $("#terms").checked = !$("#terms").checked;

@@ -27,7 +27,7 @@ from rendiciones.automation.browser.session import BrowserOptions, BrowserSessio
 from rendiciones.automation.fake import FakePortalClient, minimal_pdf
 from rendiciones.config import Settings
 from rendiciones.credentials import Credential, MemoryStore
-from rendiciones.domain import DocRole, Status
+from rendiciones.domain import DocRole, Status, TipoPrestacion
 from rendiciones.pipeline import Outcome, Pipeline, Portal, record_result, record_submission
 from rendiciones.services import RendicionService
 
@@ -213,6 +213,63 @@ def test_colmena_submit_without_validation_robot(
     assert service.repo.get_rendicion(lab_rendicion).colmena_request_id == "987654"
     assert portals.state.posted("validacion-documento") == []
     assert len(portals.state.posted("reembolso-web/solicitud")) == 1
+
+
+def test_colmena_waits_for_the_prestacion_answer_before_attaching(
+    service: RendicionService,
+    lista_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+) -> None:
+    """A Consultas boleta goes to the block Colmena renders after its answer, not a placeholder."""
+    service.edit(lista_rendicion, tipo_prestacion=TipoPrestacion.CONSULTA_MEDICA)
+    portals.state.subtype_delay_s = 1
+
+    report = Pipeline(service, make_colmena(), FakePortalClient("chubb")).run_once()
+
+    assert report.colmena_submitted == [lista_rendicion]
+    assert len(portals.state.posted("validacion-documento")) == 1
+
+
+def test_colmena_reattaches_a_file_the_page_dropped(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+) -> None:
+    """A file the page ignores on the first selection is selected again and submitted."""
+    portals.state.drop_attaches = 1
+
+    report = Pipeline(
+        service,
+        make_colmena(attach_check_timeout_s=0.5),
+        FakePortalClient("chubb"),
+    ).run_once()
+
+    assert report.colmena_submitted == [lab_rendicion]
+    assert len(portals.state.posted("validacion-documento")) == 3
+
+
+def test_colmena_dropped_file_fails_before_the_marker(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+) -> None:
+    """A file the page drops twice fails the rendición with no marker and nothing sent."""
+    portals.state.drop_attaches = 2
+
+    report = Pipeline(
+        service,
+        make_colmena(attach_check_timeout_s=0.5),
+        FakePortalClient("chubb"),
+    ).run_once()
+
+    view = service.repo.get_rendicion(lab_rendicion)
+    assert report.errors == [lab_rendicion]
+    assert "no tomó el archivo de 'Boleta o factura'" in (view.error_message or "")
+    assert service.repo.get_marker(lab_rendicion, "colmena") is None
+    assert portals.state.posted("reembolso-web/solicitud") == []
 
 
 def test_colmena_blocked_continuar_fails_before_the_marker(
