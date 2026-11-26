@@ -155,6 +155,7 @@ def make_auto_login(settings: Settings) -> Callable[[str], AutoLogin]:
         return AutoLogin(
             store,
             LoginLog(settings.data_dir / STATE_FILE),
+            screens_dir=settings.data_dir / "screenshots",
             timeout_s=15,
             poll_s=0.2,
             rejected_after_s=1,
@@ -345,6 +346,117 @@ def test_colmena_rejected_password_is_not_retried(
     last = LoginLog(settings.data_dir / STATE_FILE).read()["colmena"]
     assert last["result"] == LoginResult.REJECTED
     assert service.repo.get_rendicion(lab_rendicion).status == Status.ERROR
+
+
+def test_colmena_logs_in_from_a_page_stuck_after_expiry(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    make_auto_login: Callable[[str], AutoLogin],
+) -> None:
+    """An expired tab that never reaches the login form is sent to Colmena's login route."""
+    portals.state.colmena_expired = True
+    portals.state.colmena_stale_when_expired = True
+    client = make_colmena(auto_login=make_auto_login("clave-de-prueba"))
+
+    report = Pipeline(service, client, FakePortalClient("chubb")).run_once()
+
+    assert report.sessions_expired == []
+    assert portals.state.logins == ["colmena"]
+    assert service.repo.get_rendicion(lab_rendicion).status == Status.COLMENA_ENVIADA
+
+
+@pytest.mark.parametrize(
+    ("password", "state", "result", "detail"),
+    [
+        ("clave-equivocada", {}, LoginResult.REJECTED, "Usuario o clave inválido"),
+        ("clave-de-prueba", {"colmena_password_expired": True}, LoginResult.NEEDS_USER, "caducó"),
+        (
+            "clave-de-prueba",
+            {"colmena_login_message": "Servicio no disponible"},
+            LoginResult.NEEDS_USER,
+            "Servicio no disponible",
+        ),
+    ],
+)
+def test_colmena_login_answer_is_recorded_with_screenshot(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    settings: Settings,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    make_auto_login: Callable[[str], AutoLogin],
+    password: str,
+    state: dict[str, object],
+    result: LoginResult,
+    detail: str,
+) -> None:
+    """Colmena's own answer decides the result; each failure keeps a screenshot."""
+    portals.state.colmena_expired = True
+    for name, value in state.items():
+        setattr(portals.state, name, value)
+    client = make_colmena(auto_login=make_auto_login(password))
+
+    Pipeline(service, client, FakePortalClient("chubb")).run_once()
+
+    last = LoginLog(settings.data_dir / STATE_FILE).read()["colmena"]
+    assert (last["result"], portals.state.logins) == (result, ["colmena"])
+    assert detail in last["detail"]
+    assert list((settings.data_dir / "screenshots").glob("login-colmena-*.png"))
+
+
+def test_auto_login_reports_a_page_that_never_loaded(
+    session: BrowserSession,
+    settings: Settings,
+    make_auto_login: Callable[[str], AutoLogin],
+) -> None:
+    """A tab that never loaded is not reported as a missing login form."""
+    auto_login = make_auto_login("clave-de-prueba")
+    auto_login.timeout_s = 0
+
+    ok = auto_login.attempt(session.page("colmena"), "colmena", lambda page: False)
+
+    last = LoginLog(settings.data_dir / STATE_FILE).read()["colmena"]
+    assert not ok
+    assert (last["result"], last["detail"].startswith("El portal no cargó")) == ("failed", True)
+
+
+def test_colmena_unreachable_login_page_is_recorded(
+    settings: Settings,
+    session: BrowserSession,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    make_auto_login: Callable[[str], AutoLogin],
+) -> None:
+    """A login page that fails to load is logged as such, with a screenshot."""
+    page = session.page("colmena")
+    page.route("**/*", lambda route: route.abort())
+    client = make_colmena(auto_login=make_auto_login("clave-de-prueba"))
+
+    ok = client._log_in(page)
+
+    last = LoginLog(settings.data_dir / STATE_FILE).read()["colmena"]
+    assert not ok
+    assert last["detail"].startswith("El portal no cargó")
+    assert list((settings.data_dir / "screenshots").glob("login-colmena-*.png"))
+
+
+def test_colmena_log_in_keeps_a_live_session(
+    portals: PortalServer,
+    session: BrowserSession,
+    colmena_urls: ColmenaUrls,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+    make_auto_login: Callable[[str], AutoLogin],
+) -> None:
+    """A tab that still has its token is not sent to the login route, which would log it out."""
+    page = session.page("colmena")
+    page.goto(colmena_urls.consultar, wait_until="domcontentloaded")
+    client = make_colmena(auto_login=make_auto_login("clave-de-prueba"))
+
+    ok = client._log_in(page)
+
+    assert ok
+    assert (portals.state.logins, "#/login" in page.url) == ([], False)
 
 
 def test_colmena_interrupted_submit_is_reconciled_not_resent(

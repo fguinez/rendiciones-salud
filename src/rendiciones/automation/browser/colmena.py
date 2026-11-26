@@ -23,9 +23,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, Request, Response
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from rendiciones.accounts import LoginResult
 from rendiciones.automation.base import (
     PortalError,
     PortalState,
@@ -33,7 +35,7 @@ from rendiciones.automation.base import (
     StatusResult,
     SubmissionResult,
 )
-from rendiciones.automation.browser.autologin import AutoLogin
+from rendiciones.automation.browser.autologin import AutoLogin, LoginFailure
 from rendiciones.automation.browser.common import (
     MARKER_DONE,
     MARKER_FINAL_CLICK,
@@ -142,6 +144,38 @@ def is_logged_in(page: Page, urls: ColmenaUrls | None = None) -> bool:
     return session_state(page, urls or ColmenaUrls()) == "in"
 
 
+def read_login_failure(page: Page) -> LoginFailure | None:
+    """Colmena's own answer to a submitted login, when it is not a success."""
+    if ColmenaSel.PASSWORD_EXPIRED_ROUTE in page.url:
+        return LoginFailure(
+            LoginResult.NEEDS_USER,
+            "La clave de Colmena caducó: cámbiala e inicia sesión desde Cuentas",
+        )
+    message = page.locator(ColmenaSel.LOGIN_MESSAGE)
+    if not message.count():
+        return None
+    text = " ".join(message.first.inner_text().split())
+    if not text:
+        return None
+    if ColmenaSel.LOGIN_REJECTED_TEXT.casefold() in text.casefold():
+        return LoginFailure(
+            LoginResult.REJECTED, f"Colmena rechazó el RUT o la clave guardados: {text}"
+        )
+    return LoginFailure(
+        LoginResult.NEEDS_USER, f"Colmena respondió «{text}»: inicia sesión desde Cuentas"
+    )
+
+
+def may_hold_session(page: Page, urls: ColmenaUrls) -> bool:
+    """Whether the tab is on the app and may still hold its token (an unreadable one counts)."""
+    if not page.url.startswith(urls.base):
+        return False
+    try:
+        return bool(page.evaluate("k => !!window.localStorage.getItem(k)", ColmenaSel.TOKEN_KEY))
+    except PlaywrightError:
+        return True
+
+
 def _items(body: Any) -> list[Mapping[str, Any]]:
     if isinstance(body, Mapping):
         body = body.get("response")
@@ -214,12 +248,34 @@ class ColmenaBrowserClient:
             page.wait_for_timeout(300)
 
     def _log_in(self, page: Page) -> bool:
-        """Log in with the saved credential (at most once a minute, so never in a loop)."""
+        """Log in with the saved credential (at most once a minute, so never in a loop).
+
+        It starts from a fresh load of the login route (an expired tab can be stuck on any
+        page, and a hash-only ``goto`` would not restart the app) unless the tab may still
+        hold a session, since opening the login route logs it out.
+        """
         recent = self._login_tried_at is not None and time.monotonic() - self._login_tried_at < 60
         if self.auto_login is None or recent:
             return False
         self._login_tried_at = time.monotonic()
-        return self.auto_login.attempt(page, PORTAL, lambda p: is_logged_in(p, self.urls))
+        load_failed = False
+        try:
+            if not may_hold_session(page, self.urls):
+                page.goto(self.urls.login_form, wait_until="domcontentloaded")
+                page.reload(wait_until="domcontentloaded")
+        except PlaywrightTimeoutError:
+            logger.warning("colmena login page slow to load; waiting for it")
+        except PlaywrightError as exc:
+            # ``attempt`` records the failed load with a screenshot instead of raising it.
+            logger.warning("colmena login page did not load: %s", type(exc).__name__)
+            load_failed = True
+        return self.auto_login.attempt(
+            page,
+            PORTAL,
+            lambda p: is_logged_in(p, self.urls),
+            check_failure=read_login_failure,
+            load_failed=load_failed,
+        )
 
     def _retry_after_login[T](self, operation: Callable[[], T]) -> T:
         """Run ``operation``; if the session dies midway, log in again and run it once more.

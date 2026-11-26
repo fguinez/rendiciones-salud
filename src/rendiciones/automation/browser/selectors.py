@@ -21,6 +21,11 @@ class ColmenaUrls:
         return self.base
 
     @property
+    def login_form(self) -> str:
+        """Login route the app itself redirects to when there is no token."""
+        return f"{self.base}#/login"
+
+    @property
     def solicitar(self) -> str:
         """New reimbursement form."""
         return f"{self.base}#/reembolso/solicitar"
@@ -51,6 +56,10 @@ class ColmenaSel:
     APP_ROOT = "app-root"
     TOKEN_KEY = "coleman"  # noqa: S105 - localStorage key holding the X-Auth-Token (never read in Python)
     PASSWORD_INPUT = "input[type=password]"  # noqa: S105
+    # The login component lists the server's ``glosaRetorno`` here after a failed submit.
+    LOGIN_MESSAGE = "app-root div.message:visible"
+    LOGIN_REJECTED_TEXT = "Usuario o clave inválido"
+    PASSWORD_EXPIRED_ROUTE = "#/cambiar-clave"  # noqa: S105 - route, not a secret
 
     @staticmethod
     def boton(label: str) -> str:

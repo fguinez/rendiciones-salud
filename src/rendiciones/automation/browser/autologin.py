@@ -1,9 +1,8 @@
 """Fill a portal's login form with the credential saved in the keychain.
 
-Neither portal's login form was mapped (docs/portals.md), so fields are found with
-generic selectors: the visible password input, plus the RUT / e-mail / username input
-next to it. One submission per attempt only, so a wrong password never locks the account:
-after a rejection, automatic logins stay off until the user saves a new password.
+Generic selectors find the password and RUT / e-mail / username inputs (portal specifics
+in docs/portals.md). One password submission per attempt, so a rejection pauses auto-login
+until a new password is saved and the account never locks; every failure leaves a screenshot.
 """
 
 from __future__ import annotations
@@ -14,11 +13,17 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
+from urllib.parse import urlsplit
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page
 
+from rendiciones import rut
 from rendiciones.accounts import LoginLog, LoginResult
+from rendiciones.automation.browser.common import stamp, take_screenshot
 from rendiciones.credentials import Credential, CredentialStore, CredentialStoreError
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,18 @@ SUBMIT_RE = re.compile(r"^\s*(Ingresar|Iniciar sesi[oó]n|Continuar|Siguiente|En
 REJECTED_AFTER_S = 10.0
 # Without a password field, wait this long before guessing (the SSO may still be restoring).
 GUESS_AFTER_S = 5.0
+
+
+@dataclass(frozen=True)
+class LoginFailure:
+    """A portal-specific reason why a submitted login did not go through."""
+
+    result: LoginResult
+    detail: str
+
+
+FailureCheck = Callable[[Page], LoginFailure | None]
+NOT_LOADED = LoginFailure(LoginResult.FAILED, "El portal no cargó (¿sin conexión o portal caído?)")
 
 
 class Step(StrEnum):
@@ -75,6 +92,24 @@ def find_username(page: Page) -> Locator | None:
         if found is not None:
             return found
     return _first_visible(page, TEXT_INPUTS)
+
+
+def fit_username(field: Locator, username: str) -> str:
+    """``username`` as it fits ``field``: a RUT longer than its ``maxlength`` goes in compact."""
+    limit = field.get_attribute("maxlength") or ""
+    canonical = rut.normalize(username)
+    if not limit.isdigit() or len(username) <= int(limit) or canonical is None:
+        return username
+    return canonical.replace("-", "")
+
+
+def describe_page(page: Page) -> str:
+    """Host, path and SPA route of ``page``, never parameters (they may carry sign-in codes)."""
+    parts = urlsplit(page.url)
+    route = parts.fragment.split("?", 1)[0].split("&", 1)[0]
+    shown = f"#{route}" if route.startswith("/") else ""
+    host = f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname or ""
+    return f"{host}{parts.path}{shown}"
 
 
 def _submit(page: Page, field: Locator) -> None:
@@ -127,8 +162,10 @@ class LoginFiller:
             return Step.IDLE
         if password is not None:
             username = find_username(page)
-            if username is not None and username.input_value() != self.credential.username:
-                username.fill(self.credential.username)
+            if username is not None:
+                value = fit_username(username, self.credential.username)
+                if username.input_value() != value:
+                    username.fill(value)
             password.fill(self.credential.password)
             _submit(page, password)
             self.submitted_at = time.monotonic()
@@ -139,7 +176,7 @@ class LoginFiller:
         username = find_username(page)
         if username is not None and not self.username_only_done:
             # Two-step forms ask for the RUT first and show the password afterwards.
-            username.fill(self.credential.username)
+            username.fill(fit_username(username, self.credential.username))
             _submit(page, username)
             self.username_only_done = True
             return Step.ACTED
@@ -155,13 +192,26 @@ class AutoLogin:
 
     store: CredentialStore
     log: LoginLog
+    screens_dir: Path | None = None
     timeout_s: float = 60
     poll_s: float = 0.5
     rejected_after_s: float = REJECTED_AFTER_S
     guess_after_s: float = GUESS_AFTER_S
 
-    def attempt(self, page: Page, portal: str, logged_in: Callable[[Page], bool]) -> bool:
-        """Try once to log in on ``page``; True when ``logged_in`` turns true."""
+    def attempt(
+        self,
+        page: Page,
+        portal: str,
+        logged_in: Callable[[Page], bool],
+        *,
+        check_failure: FailureCheck | None = None,
+        load_failed: bool = False,
+    ) -> bool:
+        """Try once to log in on ``page``; True when ``logged_in`` turns true.
+
+        ``check_failure`` reads the portal's own answer once the form was submitted;
+        ``load_failed`` says the caller could not open the login page.
+        """
         try:
             credential = self.store.get(portal)
         except CredentialStoreError as exc:
@@ -172,35 +222,70 @@ class AutoLogin:
         if self.log.blocked(portal, credential):
             logger.warning("%s auto-login skipped: last attempt was rejected", portal)
             return False
+        if load_failed:
+            self._fail(page, portal, NOT_LOADED)
+            return False
         filler = LoginFiller(
             credential, rejected_after_s=self.rejected_after_s, guess_after_s=self.guess_after_s
         )
         deadline = time.monotonic() + self.timeout_s
         while time.monotonic() < deadline:
+            failure: LoginFailure | None = None
             try:
                 if logged_in(page):
                     self.log.record(portal, LoginResult.OK, "Inicio de sesión automático")
                     return True
-                step = filler.step(page)
+                if filler.submitted_at is not None and check_failure is not None:
+                    failure = check_failure(page)
+                step = Step.IDLE if failure else filler.step(page)
             except Exception as exc:
                 logger.warning("%s auto-login error: %s", portal, type(exc).__name__)
                 step = Step.IDLE
-            if step is Step.REJECTED:
-                self.log.record(
-                    portal,
-                    LoginResult.REJECTED,
-                    "El portal rechazó el usuario o la contraseña guardados",
+            # A portal that reads its own answer decides; a slow reply is not a rejection.
+            if step is Step.REJECTED and check_failure is None:
+                failure = LoginFailure(
+                    LoginResult.REJECTED, "El portal rechazó el usuario o la contraseña guardados"
                 )
+            if failure is not None:
+                self._fail(page, portal, failure)
                 return False
             page.wait_for_timeout(self.poll_s * 1000)
-        if filler.submitted_at is not None:
-            self.log.record(
-                portal,
+        self._fail(
+            page,
+            portal,
+            self._build_timeout_failure(page, submitted=filler.submitted_at is not None),
+        )
+        return False
+
+    @staticmethod
+    def _build_timeout_failure(page: Page, *, submitted: bool) -> LoginFailure:
+        if submitted:
+            return LoginFailure(
                 LoginResult.NEEDS_USER,
                 "El portal pidió algo más (¿código de verificación?): inicia sesión desde Cuentas",
             )
-        else:
-            self.log.record(
-                portal, LoginResult.FAILED, "No se encontró el formulario de inicio de sesión"
+        if not page.url.startswith(("http://", "https://")):
+            return NOT_LOADED
+        return LoginFailure(
+            LoginResult.FAILED,
+            f"No se encontró el formulario de inicio de sesión en {describe_page(page)}",
+        )
+
+    def _fail(self, page: Page, portal: str, failure: LoginFailure) -> None:
+        shot = self._take_screenshot(page, portal)
+        detail = failure.detail
+        if shot is not None:
+            detail = f"{detail} (captura: {shot.name})"
+        self.log.record(portal, failure.result, detail)
+
+    def _take_screenshot(self, page: Page, portal: str) -> Path | None:
+        """Best effort: a crashed page must not hide the login result being recorded."""
+        if self.screens_dir is None:
+            return None
+        try:
+            return take_screenshot(
+                page, self.screens_dir, f"login-{portal}-{stamp(datetime.now())}"
             )
-        return False
+        except (PlaywrightError, OSError) as exc:
+            logger.warning("%s login screenshot failed: %s", portal, type(exc).__name__)
+            return None

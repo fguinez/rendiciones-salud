@@ -16,6 +16,15 @@
 </head>
 <body>
 <app-root ng-version="6.1.0">
+  <section id="login-screen" hidden>
+    <div class="message" hidden></div>
+    <form id="login" novalidate>
+      <input formcontrolname="username" formatrut maxlength="10" type="text" placeholder="12.345.678-9">
+      <input formcontrolname="password" maxlength="32" type="password">
+      <button class="submit-login" type="submit" disabled>Ingresar</button>
+    </form>
+  </section>
+  <section id="expired-notice" hidden><p>Su sesión ha expirado</p></section>
   <section id="solicitar" hidden>
     <div id="screen-bank">
       <p>Banco Ficticio · Cuenta Corriente · ****1234</p>
@@ -207,9 +216,40 @@ function route() {
   if (!$("#consultar").hidden) renderConsultar();
 }
 
+function rutClean(value) { return value.replace(/[^0-9kK]/g, ""); }
+
+function showLogin() {
+  const form = $("#login");
+  const message = $("#login-screen .message");
+  const user = form.querySelector("[formcontrolname=username]");
+  const password = form.querySelector("[formcontrolname=password]");
+  $("#login-screen").hidden = false;
+  form.oninput = () => {
+    const rut = rutClean(user.value);
+    form.querySelector("button").disabled = rut.length < 7 || rut.length > 10 || !password.value;
+  };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const r = await fetch("/login", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({user: rutClean(user.value), password: password.value})});
+    const body = await r.json();
+    if (body.codigoRetorno === 0) { location.replace("/afiliados/#/"); location.reload(); return; }
+    if (body.codigoRetorno === 2) { location.hash = "#/cambiar-clave"; return; }
+    message.textContent = body.glosaRetorno;
+    message.hidden = false;
+  };
+}
+
 if (FIXTURE.expired) {
   localStorage.removeItem("coleman");
-  location.replace("/login");
+  if (location.hash.startsWith("#/login")) {
+    showLogin();
+  } else if (FIXTURE.staleWhenExpired) {
+    $("#expired-notice").hidden = false;
+  } else {
+    location.replace("#/login");
+    showLogin();
+  }
 } else {
   localStorage.setItem("coleman", JSON.stringify({token: FIXTURE.token}));
   setupSolicitar();

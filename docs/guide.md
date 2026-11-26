@@ -50,9 +50,12 @@ verificación). Sin cuenta guardada, la misma ventana sirve para iniciar sesión
   sesión con la cuenta guardada. Lo intenta **una sola vez**: si el portal rechaza la clave
   o pide un paso adicional, el inicio automático queda en pausa (para no bloquear la cuenta)
   hasta que guardes la clave de nuevo o inicies sesión desde Cuentas.
-- Los formularios de inicio de sesión de los portales no están mapeados (ver
-  `docs/portals.md`), así que los campos se buscan de forma genérica
-  (`automation/browser/autologin.py`). Si un portal cambia, el resultado aparece en Cuentas.
+- Los campos se buscan de forma genérica (`automation/browser/autologin.py`). En Colmena el
+  inicio automático parte desde su página de login (`#/login`), salvo que la pestaña aún
+  pueda tener sesión (abrir esa página la cierra), y lee su respuesta:
+  "Usuario o clave inválido." pausa por clave rechazada; una clave caducada o cualquier otro
+  mensaje pausa y muestra el texto de Colmena en Cuentas. Cada intento fallido deja una
+  captura en `data/screenshots/login-<portal>-<fecha>.png`.
 
 Alternativa por consola:
 
