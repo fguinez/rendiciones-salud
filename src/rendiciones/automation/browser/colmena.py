@@ -166,12 +166,14 @@ def read_login_failure(page: Page) -> LoginFailure | None:
     )
 
 
-def _has_token(page: Page) -> bool:
-    """Whether the tab still holds a session token (False when the page cannot answer)."""
+def may_hold_session(page: Page, urls: ColmenaUrls) -> bool:
+    """Whether the tab is on the app and may still hold its token (an unreadable one counts)."""
+    if not page.url.startswith(urls.base):
+        return False
     try:
         return bool(page.evaluate("k => !!window.localStorage.getItem(k)", ColmenaSel.TOKEN_KEY))
     except PlaywrightError:
-        return False
+        return True
 
 
 def _items(body: Any) -> list[Mapping[str, Any]]:
@@ -248,9 +250,9 @@ class ColmenaBrowserClient:
     def _log_in(self, page: Page) -> bool:
         """Log in with the saved credential (at most once a minute, so never in a loop).
 
-        Without a token it starts from a fresh load of the login route: an expired tab can be
-        stuck on any page, and a hash-only ``goto`` would not restart the app. With a token
-        it stays put, since opening the login route logs the session out.
+        It starts from a fresh load of the login route (an expired tab can be stuck on any
+        page, and a hash-only ``goto`` would not restart the app) unless the tab may still
+        hold a session, since opening the login route logs it out.
         """
         recent = self._login_tried_at is not None and time.monotonic() - self._login_tried_at < 60
         if self.auto_login is None or recent:
@@ -258,7 +260,7 @@ class ColmenaBrowserClient:
         self._login_tried_at = time.monotonic()
         load_failed = False
         try:
-            if not _has_token(page):
+            if not may_hold_session(page, self.urls):
                 page.goto(self.urls.login_form, wait_until="domcontentloaded")
                 page.reload(wait_until="domcontentloaded")
         except PlaywrightTimeoutError:

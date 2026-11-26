@@ -6,9 +6,12 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 
 from rendiciones.accounts import STATE_FILE, LoginLog, LoginResult
 from rendiciones.automation.browser.autologin import AutoLogin, describe_page, fit_username
+from rendiciones.automation.browser.colmena import may_hold_session
+from rendiciones.automation.browser.selectors import ColmenaUrls
 from rendiciones.credentials import Credential, MemoryStore
 
 
@@ -66,3 +69,26 @@ def test_failed_screenshot_still_records_the_login_result(tmp_path: Path) -> Non
 
     assert not ok
     assert log.read()["colmena"]["result"] == LoginResult.FAILED
+
+
+@pytest.mark.parametrize(
+    ("url", "token", "expected"),
+    [
+        ("chrome-error://chromewebdata/", True, False),
+        ("https://www.colmena.cl/", True, False),
+        ("https://www.colmena.cl/afiliados/#/reembolso/consultar", False, False),
+        ("https://www.colmena.cl/afiliados/#/reembolso/consultar", True, True),
+        ("https://www.colmena.cl/afiliados/#/home", PlaywrightError("context destroyed"), True),
+    ],
+)
+def test_may_hold_session_only_off_the_login_route_when_unsure(
+    url: str, token: bool | Exception, expected: bool
+) -> None:
+    """Only a tab on the app that has, or may have, its token is kept off the login route."""
+    page = Mock(url=url)
+    page.evaluate.side_effect = token if isinstance(token, Exception) else None
+    page.evaluate.return_value = token
+
+    kept = may_hold_session(page, ColmenaUrls())
+
+    assert kept is expected
