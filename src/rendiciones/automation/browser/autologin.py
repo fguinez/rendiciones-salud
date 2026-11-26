@@ -245,12 +245,14 @@ class AutoLogin:
                 return False
             page.wait_for_timeout(self.poll_s * 1000)
         self._fail(
-            page, portal, self._timeout_failure(page, submitted=filler.submitted_at is not None)
+            page,
+            portal,
+            self._build_timeout_failure(page, submitted=filler.submitted_at is not None),
         )
         return False
 
     @staticmethod
-    def _timeout_failure(page: Page, *, submitted: bool) -> LoginFailure:
+    def _build_timeout_failure(page: Page, *, submitted: bool) -> LoginFailure:
         if submitted:
             return LoginFailure(
                 LoginResult.NEEDS_USER,
@@ -267,12 +269,12 @@ class AutoLogin:
 
     def _fail(self, page: Page, portal: str, failure: LoginFailure) -> None:
         detail = failure.detail
-        shot = self._screenshot(page, portal)
+        shot = self._take_screenshot(page, portal)
         if shot is not None:
             detail = f"{detail} (captura: {shot.name})"
         self.log.record(portal, failure.result, detail)
 
-    def _screenshot(self, page: Page, portal: str) -> Path | None:
+    def _take_screenshot(self, page: Page, portal: str) -> Path | None:
         """Best effort: a crashed page must not hide the login result being recorded."""
         if self.screens_dir is None:
             return None

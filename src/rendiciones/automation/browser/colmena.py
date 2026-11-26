@@ -144,7 +144,7 @@ def is_logged_in(page: Page, urls: ColmenaUrls | None = None) -> bool:
     return session_state(page, urls or ColmenaUrls()) == "in"
 
 
-def login_failure(page: Page) -> LoginFailure | None:
+def read_login_failure(page: Page) -> LoginFailure | None:
     """Colmena's own answer to a submitted login, when it is not a success."""
     if ColmenaSel.PASSWORD_EXPIRED_ROUTE in page.url:
         return LoginFailure(
@@ -254,7 +254,7 @@ class ColmenaBrowserClient:
             # ``attempt`` still runs: it records "the portal did not load" with a screenshot.
             logger.warning("colmena login page did not load: %s", type(exc).__name__)
         return self.auto_login.attempt(
-            page, PORTAL, lambda p: is_logged_in(p, self.urls), check_failure=login_failure
+            page, PORTAL, lambda p: is_logged_in(p, self.urls), check_failure=read_login_failure
         )
 
     def _retry_after_login[T](self, operation: Callable[[], T]) -> T:
