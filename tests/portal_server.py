@@ -32,6 +32,11 @@ class PortalState:
 
     today: str = "2026-11-05"
     colmena_expired: bool = False
+    # Expired, the app stays on a dead page instead of redirecting to its login route.
+    colmena_stale_when_expired: bool = False
+    # Any other answer Colmena may give to a login (the wrong password has its own text).
+    colmena_login_message: str | None = None
+    colmena_password_expired: bool = False
     # The session dies right after the page loads (the API then answers 401).
     colmena_expires_after_load: bool = False
     excedentes: int = 0
@@ -52,6 +57,10 @@ class PortalState:
     def posted(self, part: str) -> list[bytes]:
         """Bodies of POSTs whose path contains ``part``."""
         return [body for path, body in self.posts if part in path]
+
+
+def _rut_clean(value: str) -> str:
+    return "".join(ch for ch in value if ch.isdigit() or ch in "kK")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -79,6 +88,7 @@ class _Handler(BaseHTTPRequestHandler):
         if which == "colmena":
             data = {
                 "expired": state.colmena_expired,
+                "staleWhenExpired": state.colmena_stale_when_expired,
                 "excedentes": state.excedentes,
                 "robotError": state.robot_error,
                 "robot": state.robot,
@@ -105,8 +115,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._state_js("colmena")
         elif path in ("/afiliados/", "/afiliados/index.html"):
             self._file("colmena/index.html")
-        elif path == "/login":
-            self._file("colmena/login.html")
         elif path.startswith(COLMENA_API + "consulta/ultimas/"):
             if state.colmena_expired or self.headers.get("X-Auth-Token") != TOKEN:
                 self._json({"code": 401, "message": "unauthorized"}, 401)
@@ -139,14 +147,25 @@ class _Handler(BaseHTTPRequestHandler):
         data = json.loads(body or b"{}")
         portal = "colmena" if path == "/login" else "chubb"
         state.logins.append(portal)
-        if data.get("user") != state.username or data.get("password") != state.password:
-            self._json({"error": "bad credentials"}, 401)
-            return
-        if portal == "colmena":
-            state.colmena_expired = False
-        else:
+        valid = (
+            _rut_clean(str(data.get("user"))) == _rut_clean(state.username)
+            and data.get("password") == state.password
+        )
+        if portal == "chubb":
+            if not valid:
+                self._json({"error": "bad credentials"}, 401)
+                return
             state.chubb_expired = False
-        self._json({"ok": True})
+            self._json({"ok": True})
+        elif state.colmena_login_message is not None:
+            self._json({"codigoRetorno": 9, "glosaRetorno": state.colmena_login_message})
+        elif not valid:
+            self._json({"codigoRetorno": 1, "glosaRetorno": "Usuario o clave inválido."})
+        elif state.colmena_password_expired:
+            self._json({"codigoRetorno": 2, "glosaRetorno": "Tu contraseña ha caducado."})
+        else:
+            state.colmena_expired = False
+            self._json({"codigoRetorno": 0})
 
     def _report(self, body: bytes) -> None:
         """Comprobante PDF for an approved request; an empty body for anything else."""

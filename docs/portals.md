@@ -11,6 +11,7 @@ Personal data is replaced with placeholders (`<RUT>`, `<FOLIO>`, `<AMOUNT>`, `<D
 - **Buttons are not `<button>` elements.** Use `app-boton-colmena[label="Continuar"] .wrapper`, `app-boton-colmena[label="Cancelar"] .wrapper` and similar. Neither role=button nor `getByRole('button')` matches them. Use `getByText('Continuar', {exact:true})` or the attribute selector.
 - **Auth:** the app keeps its own session token in the browser. The client never reads it in Python: its few direct requests (status JSON, comprobante PDF) run inside the page, so they reuse the app's own session.
 - **Session:** the session was still active after the earlier run. Deep links work on a full page load.
+- **Login (`#/login`, mapped logged out on 2026-11-26 in a throwaway browser; nothing was submitted):** without a token every deep link redirects to `#/login`, and on a 401 the app shows "Su sesión ha expirado" and navigates there too. The form has `input[formcontrolname=username][formatrut][maxlength=10]` (the RUT without dots: the directive strips dots and hyphen on input and formats on blur) and `input[formcontrolname=password][type=password]`. `button.submit-login` stays `disabled` until the form is valid. Submitting runs an **invisible reCAPTCHA v3** (action `home`) and posts `authenticate` with `{username, password, token, rVersion: 3}`. A v2 checkbox fallback (`#recaptcha2`) exists in the code but nothing calls it. Answers: `codigoRetorno` 0 goes to `#/home`, 2 (expired password) goes to `#/cambiar-clave`, and anything else lists `glosaRetorno` in `div.message` (1 = "Usuario o clave inválido.").
 
 ### 1.1 Solicitar: `#/reembolso/solicitar` (component `app-solicitar-reembolso-terminos`)
 
@@ -133,7 +134,7 @@ The site notes that a status is visible 48 business hours after submission.
 
 ## Blockers / notes
 
-- **CAPTCHA and 2FA:** none seen on either site while logged in. Login itself was not exercised: Chubb uses B2C (may have MFA), and Colmena's login was not touched.
+- **CAPTCHA and 2FA:** none seen on either site while logged in. Colmena's login has only an invisible reCAPTCHA v3 (section 1). Chubb's login was not exercised (B2C, may have MFA).
 - **Colmena: no draft or preview step.**
   - Selecting a file may already upload it for validation.
   - With the T&C box ticked, the first "Continuar" can finalise the request outright when the user has no excedentes.

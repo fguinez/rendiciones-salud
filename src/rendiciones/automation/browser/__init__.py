@@ -50,7 +50,11 @@ def factory(
     prepare_data_dir(settings)
     repo = Repository(settings.db_path)
     session = BrowserSession(BrowserOptions(profile_dir=profile_dir(), headless=not headed))
-    auto_login = AutoLogin(KeychainStore(), LoginLog(settings.data_dir / STATE_FILE))
+    auto_login = AutoLogin(
+        KeychainStore(),
+        LoginLog(settings.data_dir / STATE_FILE),
+        screens_dir=settings.data_dir / "screenshots",
+    )
     colmena = ColmenaBrowserClient(
         session,
         repo,
