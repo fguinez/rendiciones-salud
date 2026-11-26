@@ -105,10 +105,11 @@ def fit_username(field: Locator, username: str) -> str:
 
 
 def describe_page(page: Page) -> str:
-    """Host, path and route of ``page`` (never its query string)."""
+    """Host, path and SPA route of ``page``, never parameters (they may carry sign-in codes)."""
     parts = urlsplit(page.url)
-    route = f"#{parts.fragment}" if parts.fragment else ""
-    return f"{parts.netloc}{parts.path}{route}"
+    route = parts.fragment.split("?", 1)[0].split("&", 1)[0]
+    shown = f"#{route}" if route.startswith("/") else ""
+    return f"{parts.netloc}{parts.path}{shown}"
 
 
 def _submit(page: Page, field: Locator) -> None:
