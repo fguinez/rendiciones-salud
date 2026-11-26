@@ -46,6 +46,7 @@ class PortalState:
     robot: bool = True
     # Seconds Colmena takes to answer a prestación pick (its upload blocks render after).
     subtype_delay_s: float = 0
+    subtype_status: int = 200
     # File selections the page silently ignores before listing a file.
     drop_attaches: int = 0
     # An overlay covers the form once T&C is ticked, so Continuar never takes a click.
@@ -135,7 +136,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"code": 0, "message": "OK", "response": items})
         elif path.startswith(COLMENA_API + "sub-tipo-prestacion/"):
             time.sleep(state.subtype_delay_s)
-            self._json({"code": 0, "message": "OK"})
+            self._json({"code": 0, "message": "OK"}, state.subtype_status)
         elif path.startswith(CHUBB_LIQUIDATION):
             denuncio = path[len(CHUBB_LIQUIDATION) :].split("/", 1)[0]
             pdf = REPORT_PDF + denuncio.encode()

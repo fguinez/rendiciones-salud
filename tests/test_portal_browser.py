@@ -232,6 +232,44 @@ def test_colmena_waits_for_the_prestacion_answer_before_attaching(
     assert b'name="boleta"' in portals.state.posted("reembolso-web/solicitud")[0]
 
 
+def test_colmena_prestacion_answer_timeout_fails_before_the_marker(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+) -> None:
+    """A prestación pick Colmena never answers fails with no marker and nothing sent."""
+    portals.state.subtype_delay_s = 1
+
+    report = Pipeline(
+        service, make_colmena(subtype_timeout_s=0.3), FakePortalClient("chubb")
+    ).run_once()
+
+    view = service.repo.get_rendicion(lab_rendicion)
+    assert report.errors == [lab_rendicion]
+    assert "no respondió al elegir" in (view.error_message or "")
+    assert service.repo.get_marker(lab_rendicion, "colmena") is None
+    assert portals.state.posted("reembolso-web/solicitud") == []
+
+
+def test_colmena_prestacion_answer_error_fails_before_the_marker(
+    service: RendicionService,
+    lab_rendicion: int,
+    portals: PortalServer,
+    make_colmena: Callable[..., ColmenaBrowserClient],
+) -> None:
+    """An error answer to a prestación pick fails with no marker and nothing sent."""
+    portals.state.subtype_status = 500
+
+    report = Pipeline(service, make_colmena(), FakePortalClient("chubb")).run_once()
+
+    view = service.repo.get_rendicion(lab_rendicion)
+    assert report.errors == [lab_rendicion]
+    assert "respondió con error 500 al elegir" in (view.error_message or "")
+    assert service.repo.get_marker(lab_rendicion, "colmena") is None
+    assert portals.state.posted("reembolso-web/solicitud") == []
+
+
 def test_colmena_reattaches_a_file_the_page_dropped(
     service: RendicionService,
     lab_rendicion: int,

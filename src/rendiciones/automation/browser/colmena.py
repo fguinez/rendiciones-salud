@@ -208,6 +208,7 @@ class ColmenaBrowserClient:
         submit_timeout_s: float = 90,
         continue_timeout_s: float = 15,
         attach_check_timeout_s: float = 5,
+        subtype_timeout_s: float = 20,
     ) -> None:
         self.session = session
         self.ledger = ledger
@@ -225,6 +226,7 @@ class ColmenaBrowserClient:
         self.submit_timeout_s = submit_timeout_s
         self.continue_timeout_s = continue_timeout_s
         self.attach_check_timeout_s = attach_check_timeout_s
+        self.subtype_timeout_s = subtype_timeout_s
 
     def close(self) -> None:
         """Close the shared browser (it restarts lazily on next use)."""
@@ -453,11 +455,16 @@ class ColmenaBrowserClient:
         # re-renders them and drops any file selected before it.
         try:
             with page.expect_response(
-                lambda r: ColmenaSel.SUBTYPE_URL_PART in r.url, timeout=20_000
-            ):
+                lambda r: ColmenaSel.SUBTYPE_URL_PART in r.url,
+                timeout=self.subtype_timeout_s * 1000,
+            ) as answer:
                 items.nth(index).click()
         except PlaywrightTimeoutError as exc:
             raise PortalError(f"Colmena no respondió al elegir '{label}' ({level})") from exc
+        if answer.value.status >= 400:
+            raise PortalError(
+                f"Colmena respondió con error {answer.value.status} al elegir '{label}' ({level})"
+            )
         page.wait_for_timeout(300)  # let Angular render the blocks for this answer
 
     def _select_prestacion(self, page: Page, prestacion: ColmenaPrestacion) -> None:
