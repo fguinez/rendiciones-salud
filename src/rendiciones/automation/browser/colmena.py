@@ -206,6 +206,7 @@ class ColmenaBrowserClient:
         validation_timeout_s: float = 120,
         validation_start_timeout_s: float = 10,
         submit_timeout_s: float = 90,
+        continue_timeout_s: float = 15,
     ) -> None:
         self.session = session
         self.ledger = ledger
@@ -221,6 +222,7 @@ class ColmenaBrowserClient:
         self.validation_timeout_s = validation_timeout_s
         self.validation_start_timeout_s = validation_start_timeout_s
         self.submit_timeout_s = submit_timeout_s
+        self.continue_timeout_s = continue_timeout_s
 
     def close(self) -> None:
         """Close the shared browser (it restarts lazily on next use)."""
@@ -319,34 +321,42 @@ class ColmenaBrowserClient:
         with private_tmpdir(self.tmp_dir) as work:
             uploads = self._prepare(slots, work)
             page = self._open(self.urls.solicitar)
-            recovered = self._reconcile(rendicion, self.fetch_requests(page))
-            if recovered is not None:
-                return recovered
-            self._confirm_bank_account(page)
-            self._select_prestacion(page, prestacion)
-            blocks = self._upload_blocks(page, uploads)
-            files = sum(len(v) for v in uploads.values())
-            if self.dry_run:
-                logger.info(
-                    "rendicion %d: colmena dry-run stopped before uploading %d files",
-                    rendicion.id,
-                    files,
-                )
-                return SubmissionResult(
-                    ok=True,
-                    message=f"dry-run: formulario listo (prestación {prestacion.leaf_id}, "
-                    f"{files} archivos) sin adjuntar ni enviar",
-                    raw={"dry_run": True, "colmena_prestacion": prestacion.leaf_id},
-                )
-            for slot, items in uploads.items():
-                if items:
-                    self._attach(page, blocks[slot], slot, items)
-            self._accept_terms(page)
-            self.ledger.set_marker(rendicion.id, PORTAL, MARKER_FINAL_CLICK)
-            page.locator(ColmenaSel.boton("Continuar")).first.click()
-            excedentes = self._finish(page)
-            request_id = self._read_request_id(page)
-            self.ledger.set_marker(rendicion.id, PORTAL, MARKER_DONE, request_id)
+            try:
+                recovered = self._reconcile(rendicion, self.fetch_requests(page))
+                if recovered is not None:
+                    return recovered
+                self._confirm_bank_account(page)
+                self._select_prestacion(page, prestacion)
+                blocks = self._upload_blocks(page, uploads)
+                files = sum(len(v) for v in uploads.values())
+                if self.dry_run:
+                    logger.info(
+                        "rendicion %d: colmena dry-run stopped before uploading %d files",
+                        rendicion.id,
+                        files,
+                    )
+                    return SubmissionResult(
+                        ok=True,
+                        message=f"dry-run: formulario listo (prestación {prestacion.leaf_id}, "
+                        f"{files} archivos) sin adjuntar ni enviar",
+                        raw={"dry_run": True, "colmena_prestacion": prestacion.leaf_id},
+                    )
+                for slot, items in uploads.items():
+                    if items:
+                        self._attach(page, blocks[slot], slot, items)
+                self._accept_terms(page)
+                send = page.locator(ColmenaSel.boton("Continuar")).first
+                self._check_clickable(send)
+                self.ledger.set_marker(rendicion.id, PORTAL, MARKER_FINAL_CLICK)
+                send.click()
+                excedentes = self._finish(page)
+                request_id = self._read_request_id(page)
+                self.ledger.set_marker(rendicion.id, PORTAL, MARKER_DONE, request_id)
+            except SessionExpiredError:
+                raise
+            except Exception:
+                self._save_failure_screenshot(page, rendicion.id)
+                raise
             shot = take_screenshot(
                 page, self.screens_dir, f"colmena-{rendicion.id}-{stamp(self.now())}"
             )
@@ -512,14 +522,19 @@ class ColmenaBrowserClient:
             page.remove_listener("response", on_response)
         if any(r.status >= 400 for r in responses):
             raise PortalError(f"Colmena rechazó la validación de '{SLOT_LABELS[slot]}'")
-        growl = page.locator(ColmenaSel.GROWL_ERROR)
-        if growl.count() and growl.first.is_visible():
-            text = " ".join(growl.first.inner_text().split())[:200]
+        text = self._growl_error(page)
+        if text is not None:
             raise PortalError(f"Colmena rechazó '{SLOT_LABELS[slot]}': {text}")
         if requests:
             logger.info("colmena: %d file(s) validated for %s", len(items), slot.value)
         else:
             logger.info("colmena: %d file(s) attached for %s without robot", len(items), slot.value)
+
+    def _growl_error(self, page: Page) -> str | None:
+        growl = page.locator(ColmenaSel.GROWL_ERROR)
+        if growl.count() and growl.first.is_visible():
+            return " ".join(growl.first.inner_text().split())[:200]
+        return None
 
     def _accept_terms(self, page: Page) -> None:
         checkbox = page.locator(ColmenaSel.TERMS_CHECKBOX).first
@@ -528,6 +543,26 @@ class ColmenaBrowserClient:
             checkbox.locator(ColmenaSel.TERMS_BOX).first.click()
         if not box_input.is_checked():
             raise PortalError("No se pudo aceptar términos y condiciones en Colmena")
+
+    def _check_clickable(self, button: Locator) -> None:
+        """Fail before the final-click marker when Continuar can't be clicked: nothing was sent."""
+        try:
+            button.click(trial=True, timeout=self.continue_timeout_s * 1000)
+        except PlaywrightTimeoutError as exc:
+            text = self._growl_error(button.page)
+            raise PortalError(
+                "Colmena no dejó presionar Continuar, así que la solicitud no se envió"
+                + (f" ({text})" if text else "")
+                + ". Revisa la captura del error en screenshots/, si quedó, antes de reintentar."
+            ) from exc
+
+    def _save_failure_screenshot(self, page: Page, rendicion_id: int) -> None:
+        name = f"colmena-{rendicion_id}-error-{stamp(self.now())}"
+        try:
+            take_screenshot(page, self.screens_dir, name)
+        except (PlaywrightError, OSError):
+            # Best effort: the submit error being re-raised matters more than its screenshot.
+            logger.warning("rendicion %d: colmena failure screenshot not saved", rendicion_id)
 
     def _finish(self, page: Page) -> bool:
         """Wait for excedentes or confirmation; answer excedentes "S". True if it was shown."""
