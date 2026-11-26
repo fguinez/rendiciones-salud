@@ -1,8 +1,8 @@
 """Fill a portal's login form with the credential saved in the keychain.
 
 Generic selectors find the password and RUT / e-mail / username inputs (portal specifics
-in docs/portals.md). One submission per attempt, so a rejection pauses auto-login until a
-new password is saved and the account never locks; every failure leaves a screenshot.
+in docs/portals.md). One password submission per attempt, so a rejection pauses auto-login
+until a new password is saved and the account never locks; every failure leaves a screenshot.
 """
 
 from __future__ import annotations
