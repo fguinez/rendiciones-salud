@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -361,12 +362,36 @@ class RendicionService:
         self, rendicion_id: int, source: Path | BinaryIO, filename: str, role: DocRole
     ) -> DocumentView:
         """Store a file and attach it to a rendición with the given role."""
+        return self._attach(rendicion_id, source, filename, role)[0]
+
+    def attach_files(
+        self, rendicion_id: int, paths: Sequence[Path], role: DocRole
+    ) -> list[DocumentView]:
+        """Attach every file or none: documents a failed batch created are removed again."""
+        attached: list[tuple[DocumentView, bool]] = []
+        try:
+            for path in paths:
+                attached.append(self._attach(rendicion_id, path, path.name, role))
+        except Exception:
+            for doc, created in attached:
+                if created:
+                    self.repo.delete_document(doc.id)
+                    self.store.delete(doc.path)
+            logger.warning("rendicion %d: attach batch rolled back", rendicion_id)
+            raise
+        return [doc for doc, _ in attached]
+
+    def _attach(
+        self, rendicion_id: int, source: Path | BinaryIO, filename: str, role: DocRole
+    ) -> tuple[DocumentView, bool]:
+        """Attach one file; also say whether a new document was created for it."""
         rendicion = self.repo.get_rendicion(rendicion_id)
         if isinstance(source, Path):
             stored = self.store.save_path(source)
         else:
             stored = self.store.save_stream(source)
         existing = self.repo.find_document_by_sha(stored.sha256)
+        created = existing is None
         if existing is not None:
             if existing.rendicion_id not in (None, rendicion_id):
                 raise UploadError("El archivo ya pertenece a otra rendición")
@@ -402,4 +427,4 @@ class RendicionService:
             self.repo.add_event(
                 rendicion_id, "documento_adjuntado", {"document_id": doc_id, "role": role.value}
             )
-        return self.repo.get_document(doc_id)
+        return self.repo.get_document(doc_id), created

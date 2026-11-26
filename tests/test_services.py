@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import io
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
 from conftest import PdfFactory, fixture_text, render_pdf
 from rendiciones.config import Settings
-from rendiciones.db import Repository
-from rendiciones.domain import DocType, DocumentEdit, Status, TipoPrestacion
+from rendiciones.db import Repository, utcnow
+from rendiciones.domain import DocRole, DocType, DocumentEdit, Status, TipoPrestacion
 from rendiciones.services import MoveResult, NotEditableError, RendicionService
+from rendiciones.storage import UploadError
 
 
 def test_ingest_classifies_and_stores(service: RendicionService, pdf_of: PdfFactory) -> None:
@@ -351,3 +353,37 @@ def test_repository_adds_columns_missing_from_older_databases(
     repo = Repository(settings.db_path)
 
     assert repo.get_document(doc_id).edited_fields == frozenset()
+
+
+def test_attach_files_is_all_or_nothing(
+    service: RendicionService, lista_rendicion: int, tmp_path: Path
+) -> None:
+    """When one file of a batch fails, the documents the batch already created are removed."""
+    good = tmp_path / "comprobante.pdf"
+    good.write_bytes(render_pdf("COMPROBANTE DE PRUEBA 28.000"))
+    empty = tmp_path / "vacio.pdf"
+    empty.write_bytes(b"")
+    before = {d.id for d in service.repo.get_rendicion(lista_rendicion).documents}
+    files_before = sorted(service.settings.files_dir.rglob("*.pdf"))
+
+    with pytest.raises(UploadError, match="vacío"):
+        service.attach_files(lista_rendicion, [good, empty], DocRole.BONIFICACION_COLMENA)
+
+    after = service.repo.get_rendicion(lista_rendicion)
+    assert {d.id for d in after.documents} == before
+    assert sorted(service.settings.files_dir.rglob("*.pdf")) == files_before
+
+
+def test_comprobantes_of_an_earlier_colmena_request_are_left_out(
+    service: RendicionService, lista_rendicion: int
+) -> None:
+    """Once the rendición is sent to Colmena again, the old request's comprobante stops counting."""
+    pdf = io.BytesIO(render_pdf("COMPROBANTE DE PRUEBA 28.000"))
+    service.attach_file(lista_rendicion, pdf, "comprobante.pdf", DocRole.BONIFICACION_COLMENA)
+    resent = {"colmena_submitted_at": utcnow() + timedelta(minutes=1)}
+    service.repo.record_fields(lista_rendicion, resent, kind="colmena_enviada", detail={})
+
+    view = service.repo.get_rendicion(lista_rendicion)
+
+    assert view.bonificacion_documents == ()
+    assert view.bonificacion_document is None

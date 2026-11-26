@@ -324,10 +324,7 @@ class Pipeline:
             resolved = [path.resolve() for path in paths]
             if not resolved or any(Path(tmp).resolve() not in p.parents for p in resolved):
                 raise ValueError("download outside destination")
-            for path in resolved:
-                self.service.attach_file(
-                    rendicion_id, path, path.name, DocRole.BONIFICACION_COLMENA
-                )
+            self.service.attach_files(rendicion_id, resolved, DocRole.BONIFICACION_COLMENA)
 
     def submit_chubb(self, report: PipelineReport) -> None:
         """Submit approved Colmena rendiciones (with comprobante) to Chubb."""
