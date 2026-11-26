@@ -1,10 +1,10 @@
 """Fill a portal's login form with the credential saved in the keychain.
 
-Neither portal's login form was mapped (docs/portals.md), so fields are found with
-generic selectors: the visible password input, plus the RUT / e-mail / username input
-next to it. One submission per attempt only, so a wrong password never locks the account:
-after a rejection, automatic logins stay off until the user saves a new password. Every
-failed attempt leaves a screenshot so the next one can be diagnosed.
+Fields are found with generic selectors (portal specifics in docs/portals.md): the
+visible password input, plus the RUT / e-mail / username input next to it. One submission
+per attempt only, so a wrong password never locks the account: after a rejection,
+automatic logins stay off until the user saves a new password. Every failed attempt leaves
+a screenshot so the next one can be diagnosed.
 """
 
 from __future__ import annotations
