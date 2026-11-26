@@ -553,7 +553,7 @@ class ColmenaBrowserClient:
             raise PortalError(
                 "Colmena no dejó presionar Continuar, así que la solicitud no se envió"
                 + (f" ({text})" if text else "")
-                + ". Revisa la captura del error en data/screenshots antes de reintentar."
+                + ". Revisa la captura del error en screenshots/, si quedó, antes de reintentar."
             ) from exc
 
     def _save_failure_screenshot(self, page: Page, rendicion_id: int) -> None:
