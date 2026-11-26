@@ -207,6 +207,8 @@ class ColmenaBrowserClient:
         validation_start_timeout_s: float = 10,
         submit_timeout_s: float = 90,
         continue_timeout_s: float = 15,
+        attach_check_timeout_s: float = 5,
+        subtype_timeout_s: float = 20,
     ) -> None:
         self.session = session
         self.ledger = ledger
@@ -223,6 +225,8 @@ class ColmenaBrowserClient:
         self.validation_start_timeout_s = validation_start_timeout_s
         self.submit_timeout_s = submit_timeout_s
         self.continue_timeout_s = continue_timeout_s
+        self.attach_check_timeout_s = attach_check_timeout_s
+        self.subtype_timeout_s = subtype_timeout_s
 
     def close(self) -> None:
         """Close the shared browser (it restarts lazily on next use)."""
@@ -447,7 +451,21 @@ class ColmenaBrowserClient:
         index = pick_label(items.all_inner_texts(), label)
         if index is None:
             raise PortalError(f"Colmena no ofrece la opción '{label}' ({level})")
-        items.nth(index).click()
+        # The upload blocks on screen until this answer arrives are placeholders: the answer
+        # re-renders them and drops any file selected before it.
+        try:
+            with page.expect_response(
+                lambda r: ColmenaSel.SUBTYPE_URL_PART in r.url,
+                timeout=self.subtype_timeout_s * 1000,
+            ) as answer:
+                items.nth(index).click()
+        except PlaywrightTimeoutError as exc:
+            raise PortalError(f"Colmena no respondió al elegir '{label}' ({level})") from exc
+        if answer.value.status >= 400:
+            raise PortalError(
+                f"Colmena respondió con error {answer.value.status} al elegir '{label}' ({level})"
+            )
+        page.wait_for_timeout(300)  # let Angular render the blocks for this answer
 
     def _select_prestacion(self, page: Page, prestacion: ColmenaPrestacion) -> None:
         self._choose(
@@ -484,11 +502,45 @@ class ColmenaBrowserClient:
     def _attach(
         self, page: Page, block: Locator, slot: ColmenaSlot, items: Sequence[UploadFile]
     ) -> None:
-        """Select the files and wait for the validation robot, when this request uses one.
+        """Select the files and check the page kept them, selecting them once more if not.
+
+        A file the page drops leaves the block empty and Continuar disabled, so fail here,
+        before the final-click marker, with nothing sent.
+        """
+        toast = None
+        for attempt in (1, 2):
+            toast = self._select_files(page, block, slot, items) or toast
+            if self._files_listed(block, len(items)):
+                return
+            logger.warning(
+                "colmena: %s file(s) not kept by the page (attempt %d)", slot.value, attempt
+            )
+            # Chromium fires no change event when the same files are selected again.
+            block.locator(ColmenaSel.FILE_INPUT).first.set_input_files([])
+        raise PortalError(
+            f"Colmena no tomó el archivo de '{SLOT_LABELS[slot]}', así que la solicitud no se envió"
+            + (f" ({toast})" if toast else "")
+            + ". Revisa la captura del error en screenshots/, si quedó, antes de reintentar."
+        )
+
+    def _files_listed(self, block: Locator, count: int) -> bool:
+        listed = block.locator(ColmenaSel.ATTACHED_FILE).nth(count - 1)
+        try:
+            listed.wait_for(state="visible", timeout=self.attach_check_timeout_s * 1000)
+        except PlaywrightTimeoutError:
+            return False
+        return True
+
+    def _select_files(
+        self, page: Page, block: Locator, slot: ColmenaSlot, items: Sequence[UploadFile]
+    ) -> str | None:
+        """Select the files and wait for the validation robot; return any toast seen meanwhile.
 
         Colmena's server picks the flow per page load (``tipo-procesamiento``): in
         ``flujo_colmena`` selecting a file posts nothing and the files travel with Continuar.
+        Toasts fade after a few seconds, so they are read while waiting.
         """
+        toast = None
         requests: list[Request] = []
         responses: list[Response] = []
 
@@ -509,6 +561,7 @@ class ColmenaBrowserClient:
             start_deadline = time.monotonic() + self.validation_start_timeout_s
             while not requests and time.monotonic() < start_deadline:
                 page.wait_for_timeout(250)
+                toast = self._growl_text(page, ColmenaSel.GROWL_MESSAGE) or toast
             deadline = time.monotonic() + self.validation_timeout_s
             while len(responses) < len(requests):
                 if time.monotonic() > deadline:
@@ -529,9 +582,13 @@ class ColmenaBrowserClient:
             logger.info("colmena: %d file(s) validated for %s", len(items), slot.value)
         else:
             logger.info("colmena: %d file(s) attached for %s without robot", len(items), slot.value)
+        return self._growl_text(page, ColmenaSel.GROWL_MESSAGE) or toast
 
     def _growl_error(self, page: Page) -> str | None:
-        growl = page.locator(ColmenaSel.GROWL_ERROR)
+        return self._growl_text(page, ColmenaSel.GROWL_ERROR)
+
+    def _growl_text(self, page: Page, selector: str) -> str | None:
+        growl = page.locator(selector)
         if growl.count() and growl.first.is_visible():
             return " ".join(growl.first.inner_text().split())[:200]
         return None

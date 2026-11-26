@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,6 +44,11 @@ class PortalState:
     robot_error: bool = False
     # False mimics Colmena's "flujo_colmena": selecting a file posts nothing to the robot.
     robot: bool = True
+    # Seconds Colmena takes to answer a prestación pick (its upload blocks render after).
+    subtype_delay_s: float = 0
+    subtype_status: int = 200
+    # File selections the page silently ignores before listing a file.
+    drop_attaches: int = 0
     # An overlay covers the form once T&C is ticked, so Continuar never takes a click.
     continue_blocked: bool = False
     request_number: str = "987654"
@@ -95,6 +101,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "robotError": state.robot_error,
                 "robot": state.robot,
                 "continueBlocked": state.continue_blocked,
+                "dropAttaches": state.drop_attaches,
                 "requestNumber": state.request_number,
                 "token": TOKEN,
             }
@@ -127,6 +134,9 @@ class _Handler(BaseHTTPRequestHandler):
             if folio != "0":
                 items = [i for i in items if str(i.get("solIdn")) == folio]
             self._json({"code": 0, "message": "OK", "response": items})
+        elif path.startswith(COLMENA_API + "sub-tipo-prestacion/"):
+            time.sleep(state.subtype_delay_s)
+            self._json({"code": 0, "message": "OK"}, state.subtype_status)
         elif path.startswith(CHUBB_LIQUIDATION):
             denuncio = path[len(CHUBB_LIQUIDATION) :].split("/", 1)[0]
             pdf = REPORT_PDF + denuncio.encode()

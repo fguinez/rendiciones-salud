@@ -71,11 +71,15 @@ class ColmenaSel:
     SUBTYPE_DROPDOWN = 'li[formarrayname="SubTiposSelect"] p-dropdown[formcontrolname="subType"]'
     DROPDOWN_TRIGGER = ".ui-dropdown"
     DROPDOWN_ITEM = ".ui-dropdown-item:visible"
+    SUBTYPE_URL_PART = "reembolso-web/sub-tipo-prestacion/"
     UPLOAD_BLOCK = ".box-adjunto"
     UPLOAD_LABEL = "label.input-label"
     FILE_INPUT = "input[type=file]"
+    # The page lists a selected file here only once its form control holds it.
+    ATTACHED_FILE = ".archivos-adjunto .archivo-item"
     VALIDATION_URL_PART = "validacion-documento"
     GROWL_ERROR = "p-growl .ui-growl-message-error"
+    GROWL_MESSAGE = f"{GROWL_ERROR}, p-growl .ui-growl-message-warn"
     TERMS_CHECKBOX = ".box-terminos-condiciones p-checkbox[binary=true]"
     TERMS_BOX = ".ui-chkbox-box"
     TERMS_INPUT = "input[type=checkbox]"
