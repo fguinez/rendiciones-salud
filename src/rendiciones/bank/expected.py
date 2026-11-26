@@ -29,16 +29,20 @@ def uso_excedente(text: str) -> int:
 
 
 def colmena_excedente(rendicion: RendicionView) -> int:
-    """Excedentes Colmena paid across the comprobantes of ``rendicion`` (0 when unknown)."""
+    """Excedentes Colmena paid across the comprobantes of ``rendicion`` (0 when unknown).
+
+    One unreadable comprobante makes the whole sum unknown rather than short.
+    """
     total = 0
     for doc in rendicion.bonificacion_documents:
         if doc.mime != "application/pdf":
-            continue
+            return 0
         try:
             total += uso_excedente(pdf_text(doc.path))
         except Exception as exc:
             name = type(exc).__name__
             logger.warning("rendicion %d: comprobante unreadable (%s)", rendicion.id, name)
+            return 0
     return total
 
 
