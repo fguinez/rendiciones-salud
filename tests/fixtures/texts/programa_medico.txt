@@ -1,0 +1,8 @@
+CLÍNICA DEMO
+RUT 77.654.321-7
+PROGRAMA MÉDICO / PRESUPUESTO
+Presupuesto N° 777
+Fecha: 15/08/2026
+Paciente: RUT 11.111.111-1
+Cirugía y hospitalización: día cama, pabellón
+Total: $ 1.250.000

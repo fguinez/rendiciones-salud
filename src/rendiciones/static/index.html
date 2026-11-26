@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es-CL">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rendiciones de salud</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 6h10l5 5v15H9z' fill='%23fff'/%3E%3Cpath d='M16.5 13v8M12.5 17h8' stroke='%232563eb' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Rendiciones de salud</h1>
+        <p class="subtitle"><span id="route-subtitle">Colmena → Chubb</span> · los datos se guardan solo en este computador</p>
+      </div>
+      <nav class="tabs" aria-label="Secciones">
+        <a href="#rendiciones" data-view="rendiciones">Rendiciones</a>
+        <a href="#flujo" data-view="flujo">Flujo</a>
+        <a href="#cuentas" data-view="cuentas">Cuentas</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="view-rendiciones" class="view-rendiciones">
+    <div class="page-head">
+      <div>
+        <h2 class="page-title">Rendiciones</h2>
+        <p id="totals" class="totals muted" aria-live="polite"></p>
+      </div>
+      <div class="page-actions">
+        <button class="button secondary" type="button" data-pick="folder">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 3.5h4.4l1.5 1.6h6.5v8.4H1.8z"/></svg>
+          Elegir carpeta
+        </button>
+        <button class="button" type="button" data-pick="files">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.6 5.8L8 2.5l3.4 3.3M2.5 10.5v3h11v-3"/></svg>
+          Subir documentos
+        </button>
+        <input id="file-input" type="file" multiple hidden
+               accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,application/pdf,image/*">
+        <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+      </div>
+    </div>
+
+    <div id="upload-tray" class="upload-tray" hidden></div>
+
+    <section class="panel pipeline" aria-labelledby="pipeline-title">
+      <div class="pipeline-head">
+        <div class="pipeline-info">
+          <h2 id="pipeline-title" class="section-title">Envío automático</h2>
+          <div class="route-line">
+            <div id="pipeline-route" class="route" aria-label="Flujo actual"></div>
+            <a href="#flujo" class="link small">Editar flujo</a>
+          </div>
+        </div>
+        <div id="pipeline-queue" class="queue"></div>
+        <div class="pipeline-actions">
+          <button id="run-dry" class="button secondary small" type="button">Probar sin enviar</button>
+          <button id="run-submit" class="button small" type="button">Enviar y consultar estados</button>
+        </div>
+      </div>
+      <p id="pipeline-status" class="pipeline-status" aria-live="polite"></p>
+      <p id="pipeline-warning" class="account-warning"></p>
+      <details class="pipeline-help">
+        <summary>¿Qué hace una pasada?</summary>
+        <p class="muted">Envía lo que está por enviar en cada cuenta, siguiendo el orden del flujo, y
+          consulta lo que está en revisión. «Probar sin enviar» llena los formularios y se detiene
+          antes de adjuntar o enviar.</p>
+      </details>
+    </section>
+
+    <section class="panel list-panel" aria-labelledby="list-title">
+      <h2 id="list-title" class="sr-only">Lista de rendiciones</h2>
+      <div id="view-tabs" class="view-tabs" role="group" aria-label="Vistas"></div>
+      <div class="toolbar">
+        <div class="search">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4L14 14"/></svg>
+          <input id="search" type="search" placeholder="Buscar por #, prestador, documento o monto"
+                 aria-label="Buscar rendiciones" autocomplete="off">
+        </div>
+        <div class="toolbar-right">
+          <div class="popover-wrap">
+            <button id="filters-toggle" class="button secondary small" type="button" aria-expanded="false"
+                    aria-controls="filter-popover">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M4.5 8h7M7 12.5h2"/></svg>
+              Filtros <span class="count"></span>
+            </button>
+            <div id="filter-popover" class="popover" role="group" aria-label="Filtros" hidden></div>
+          </div>
+          <label class="sort-select"><span class="sr-only">Ordenar por</span><select id="sort"></select></label>
+          <button id="refresh" class="button ghost small icon-only" type="button" aria-label="Actualizar" title="Actualizar">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 12 4.2"/><path d="M13.2 1.8v3h-3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="active-filters" class="active-filters"></div>
+      <div id="list" class="list"></div>
+      <div id="bulk-bar" class="bulk-bar" role="toolbar" aria-label="Acciones para la selección" hidden></div>
+    </section>
+  </main>
+
+  <main id="view-flujo" hidden>
+    <section class="panel" aria-labelledby="flow-title">
+      <div class="panel-head">
+        <h2 id="flow-title">Flujo de rendición</h2>
+        <span id="wf-dirty" class="badge warn" hidden>Cambios sin guardar</span>
+      </div>
+      <p class="muted">Arrastra las cuentas para definir a quién se envía cada rendición y en qué
+        orden. Las cuentas en una misma columna se envían en paralelo; cada columna empieza cuando
+        termina la anterior. Suelta una cuenta sobre una flecha para crear una etapa nueva, o abajo
+        para sacarla del flujo.</p>
+      <div class="wf-scroll">
+        <div id="wf-canvas" class="wf-canvas" aria-label="Etapas del flujo"></div>
+      </div>
+      <h3 class="wf-tray-title">Cuentas fuera del flujo</h3>
+      <div id="wf-tray" class="wf-tray" aria-label="Cuentas fuera del flujo"></div>
+      <ul id="wf-problems" class="wf-problems" aria-live="polite"></ul>
+      <div class="card-actions">
+        <button id="wf-save" class="button" type="button" disabled>Guardar flujo</button>
+        <button id="wf-discard" class="button secondary" type="button" disabled>Descartar cambios</button>
+        <button id="wf-reset" class="button ghost" type="button">Restaurar Colmena → Chubb</button>
+      </div>
+      <p class="muted small-print">El flujo guardado se usa desde la próxima pasada. Las
+        solicitudes que ya se enviaron a una cuenta se siguen consultando aunque la saques del flujo.</p>
+    </section>
+  </main>
+
+  <main id="view-cuentas" hidden>
+    <section class="panel" aria-labelledby="accounts-title">
+      <h2 id="accounts-title">Cuentas de los portales y del banco</h2>
+      <p class="muted">Las contraseñas se guardan en el llavero de macOS (Keychain), cifradas y
+        fuera de la carpeta del proyecto. Esta página nunca las vuelve a mostrar. Con una cuenta
+        guardada, el envío automático vuelve a iniciar sesión cuando la sesión expira. El Banco
+        de Chile solo se consulta (lectura de la cartola) para confirmar que llegaron los abonos.</p>
+      <div id="accounts" class="cards"></div>
+    </section>
+  </main>
+
+  <aside id="panel" class="drawer" aria-labelledby="panel-title" hidden></aside>
+  <div id="drop-overlay" class="drop-overlay" hidden>
+    <div class="drop-card">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.6 5.8L8 2.5l3.4 3.3M2.5 10.5v3h11v-3"/></svg>
+      <strong>Suelta para subir</strong>
+      <span>Archivos o carpetas completas · PDF, JPG, PNG, HEIC o WEBP</span>
+    </div>
+  </div>
+  <dialog id="batch-dialog" class="batch"></dialog>
+  <dialog id="confirm-dialog" class="confirm"></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="announcer" class="sr-only" aria-live="polite"></div>
+
+  <template id="account-template">
+    <article class="card account">
+      <header class="card-head">
+        <div class="card-heading">
+          <h3 class="card-title"></h3>
+          <p class="card-sub muted"></p>
+        </div>
+        <span class="badge"></span>
+      </header>
+      <p class="account-status muted"></p>
+      <p class="account-warning"></p>
+      <form class="fields account-form" autocomplete="off">
+        <label><span class="user-label">Usuario</span>
+          <input name="username" type="text" required maxlength="200" autocomplete="off"
+                 autocapitalize="off" spellcheck="false"></label>
+        <label>Contraseña
+          <input name="password" type="password" required maxlength="200"
+                 autocomplete="new-password"></label>
+        <button class="button small" type="submit">Guardar en el llavero</button>
+      </form>
+      <footer class="card-actions"></footer>
+      <p class="job-msg muted" aria-live="polite"></p>
+    </article>
+  </template>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

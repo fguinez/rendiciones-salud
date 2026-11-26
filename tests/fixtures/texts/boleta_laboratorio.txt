@@ -1,0 +1,11 @@
+LABORATORIO CLÍNICO DEMO SPA
+R.U.T.: 76.123.456-0
+BOLETA ELECTRÓNICA
+N° 000981
+Fecha Emisión: 03/10/2026
+Paciente: RUT 11.111.111-1
+Hemograma completo            $ 8.500
+Perfil lipídico               $ 12.300
+Glicemia                      $ 3.200
+MONTO TOTAL                   $ 24.000
+Timbre Electrónico SII

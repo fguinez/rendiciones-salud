@@ -1,0 +1,7 @@
+DRA. ANA EJEMPLO - MEDICINA GENERAL
+RUT 22.333.444-K
+RECETA MÉDICA
+Fecha: 20 de septiembre de 2026
+Paciente RUT 15.555.555-6
+Rp: Amoxicilina 500 mg
+1 comprimido cada 8 horas por 7 días

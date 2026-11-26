@@ -1,0 +1,64 @@
+[project]
+name = "rendiciones-salud"
+version = "0.1.0"
+description = "Gestión local de rendiciones de salud (Isapre Colmena + seguro complementario Chubb)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+    "pypdf>=5.0",
+    "pypdfium2>=4.30",
+    "pillow>=10.4",
+    "pillow-heif>=0.18",
+    "anthropic>=0.60",
+    "playwright>=1.64.1",
+    "keyring>=25.0",
+]
+
+[project.scripts]
+rendiciones = "rendiciones.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-mock>=3.14",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "reportlab>=4.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rendiciones"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT", "N"]
+ignore = ["S101", "S603", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["pillow_heif.*", "pypdfium2.*", "reportlab.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["browser: Playwright tests against local fixture portals (no real sites)"]

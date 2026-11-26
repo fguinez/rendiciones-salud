@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Chubb (fixture, SSO)</title></head>
+<body>
+<app-root><h1>Seguro Complementario de Salud</h1><button>Iniciar sesión</button></app-root>
+<script>
+  // The real portal shows /login for a few seconds while the SSO cookie restores the session.
+  history.replaceState({}, "", "/chubb/login");
+  setTimeout(() => { location.href = "/chubb/private/home"; }, 1500);
+</script>
+</body></html>

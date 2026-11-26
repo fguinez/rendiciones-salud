@@ -1,0 +1,10 @@
+CENTRO MÉDICO EJEMPLO
+RUT 77.654.321-7
+ORDEN MÉDICA
+Fecha: 01/10/2026
+Paciente: Paciente de Prueba   RUT: 11.111.111-1
+Se solicita:
+- Hemograma
+- Perfil lipídico
+- Glicemia en ayunas
+Dr. Juan Ficticio  RUT 15.555.555-6

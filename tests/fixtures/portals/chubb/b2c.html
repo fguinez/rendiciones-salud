@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Chubb sign in (fixture, Azure B2C)</title></head>
+<body>
+<app-root>
+<form id="localAccountForm">
+  <input id="signInName" type="text" placeholder="RUT o correo">
+  <input id="password" type="password">
+  <button id="next" type="submit">Iniciar sesión</button>
+</form>
+</app-root>
+<script>
+  document.getElementById("localAccountForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const body = {user: document.getElementById("signInName").value,
+                  password: document.getElementById("password").value};
+    const r = await fetch("/chubb/b2c", {method: "POST", headers: {"Content-Type": "application/json"},
+                                         body: JSON.stringify(body)});
+    if (r.ok) { location.href = "/chubb/private/home"; return; }
+    document.getElementById("password").value = "";
+  };
+</script>
+</body></html>

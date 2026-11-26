@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rendiciones",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "rendiciones", "serve"],
+      "port": 8765
+    }
+  ]
+}

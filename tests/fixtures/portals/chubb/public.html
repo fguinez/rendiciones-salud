@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Chubb (fixture, sesión cerrada)</title></head>
+<body>
+<app-root><h1>Seguro Complementario de Salud</h1><button onclick="location.href='/chubb/b2c'">Iniciar sesión</button></app-root>
+<script>
+  // An expired session ends on the public home, like the real portal.
+  if (location.pathname !== "/chubb/") { history.replaceState({}, "", "/chubb/"); }
+</script>
+</body></html>

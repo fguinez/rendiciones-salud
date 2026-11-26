@@ -1,0 +1,18 @@
+data/
+.env
+*.sqlite
+*.sqlite-*
+browser-profile/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+# Local AI-tool folders; only the .agents pointer (and the preview config) is committed
+.claude/*
+!.claude/CLAUDE.md
+!.claude/launch.json
+.cursor/
+.codex/
+.gemini/

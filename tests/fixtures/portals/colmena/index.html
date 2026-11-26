@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Colmena (fixture)</title>
+<!-- Synthetic look-alike of the Colmena reimbursement pages described in docs/portals.md. -->
+<style>
+  [hidden] { display: none !important; }
+  .ui-dropdown, .ui-dropdown-item, .wrapper, .ui-chkbox-box, .ui-radiobutton-box {
+    cursor: pointer; border: 1px solid #888; padding: 4px; margin: 2px; display: inline-block;
+  }
+  .ui-helper-hidden-accessible { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+  .ui-dropdown-panel { border: 1px solid #ccc; }
+</style>
+<script src="/afiliados/state.js"></script>
+</head>
+<body>
+<app-root ng-version="6.1.0">
+  <section id="solicitar" hidden>
+    <div id="screen-bank">
+      <p>Banco Ficticio · Cuenta Corriente · ****1234</p>
+      <div class="edit-datos">Modificar datos</div>
+      <app-boton-colmena label="Continuar"><div class="wrapper" id="bank-continue">Continuar</div></app-boton-colmena>
+    </div>
+    <form id="screen-form" hidden onsubmit="return false">
+      <ul>
+        <li class="paso">
+          <p-dropdown formcontrolname="tipoPrestacion" id="tipo"></p-dropdown>
+          <ul><li formarrayname="SubTiposSelect" id="subtypes"></li></ul>
+        </li>
+        <li class="paso" id="docs"></li>
+      </ul>
+      <div class="box-terminos-condiciones">
+        <p-checkbox binary="true">
+          <div class="ui-chkbox">
+            <div class="ui-helper-hidden-accessible"><input type="checkbox" id="terms"></div>
+            <div class="ui-chkbox-box" id="terms-box"></div>
+          </div>
+        </p-checkbox> Acepto los términos y condiciones
+      </div>
+      <app-boton-colmena label="Continuar" theme="boton-continuar"><div class="wrapper" id="form-continue">Continuar</div></app-boton-colmena>
+    </form>
+    <div class="box-uso-excedentes" hidden>
+      <h3>Solicitar Reembolso excedentes</h3>
+      <p>Tienes $<span id="exc-amount"></span> de excedentes. ¿Quieres utilizar la devolución de excedentes como una bonificación adicional?</p>
+      <p-radioButton formcontrolname="excedentesDecision" value="S">
+        <div class="ui-helper-hidden-accessible"><input type="radio" name="exc" value="S"></div>
+        <div class="ui-radiobutton-box" data-value="S"></div> Sí
+      </p-radioButton>
+      <p-radioButton formcontrolname="excedentesDecision" value="N">
+        <div class="ui-helper-hidden-accessible"><input type="radio" name="exc" value="N"></div>
+        <div class="ui-radiobutton-box" data-value="N"></div> No
+      </p-radioButton>
+      <app-boton-colmena label="Continuar"><div class="wrapper" id="exc-continue">Continuar</div></app-boton-colmena>
+    </div>
+    <div class="detalleUsoExcedentes" hidden>
+      <h3>¡Hemos recibido tu solicitud!</h3>
+      <p>Nro de Solicitud <strong id="folio"></strong></p>
+    </div>
+  </section>
+  <section id="consultar" hidden>
+    <input formcontrolname="folioSolicitud" maxlength="9">
+    <app-boton-colmena label="Buscar"><div class="wrapper">Buscar</div></app-boton-colmena>
+    <div id="cards"></div>
+  </section>
+  <p-growl><div id="growl"></div></p-growl>
+</app-root>
+<script>
+const API = "/services/afiliados/private/reembolso-web/";
+const TREE = {
+  "Consultas (médicas, psicológicas, psiquiátricas)": {docs: ["O", "P", "-"]},
+  "Exámenes de laboratorio, Imágenes y Procedimientos": {children: {
+    "Procedimiento": {children: {"Otro procedimiento": {docs: ["O", "O", "O"]}, "Colonoscopía": {docs: ["O", "O", "O"]}}},
+    "Laboratorio": {children: {"COVID19": {docs: ["O", "O", "P"]}, "Otros Exámenes": {docs: ["O", "O", "O"]}}},
+    "Imágenes": {docs: ["O", "O", "O"]}
+  }},
+  "Otras Atenciones": {children: {
+    "Lentes Ópticos": {docs: ["O", "O", "O"]},
+    "Kinesiología, fonoaudiología o Nutricionista": {children: {
+      "Kinesiología": {docs: ["O", "O", "O"]}, "Nutricionista": {docs: ["O", "P", "P"]}}}
+  }},
+  "Atención Médica Ambulatoria en el Extranjero": {docs: ["O", "P", "P"]},
+  "TEA": {children: {"Psiquiatria": {docs: ["O", "P", "P"]}}}
+};
+const $ = (s) => document.querySelector(s);
+
+function token() { return JSON.parse(localStorage.getItem("coleman") || "{}").token; }
+function growl(msg) {
+  $("#growl").innerHTML = '<div class="ui-growl-item-container ui-growl-message-error">' + msg + "</div>";
+}
+
+function dropdown(host, options, onPick) {
+  host.innerHTML = '<div class="ui-dropdown"><span class="ui-dropdown-label">Seleccione</span></div>' +
+    '<div class="ui-dropdown-panel" hidden><ul></ul></div>';
+  const panel = host.querySelector(".ui-dropdown-panel");
+  for (const name of options) {
+    const li = document.createElement("li");
+    li.className = "ui-dropdown-item";
+    li.textContent = name;
+    li.onclick = () => { panel.hidden = true; host.querySelector(".ui-dropdown-label").textContent = name; onPick(name); };
+    panel.querySelector("ul").appendChild(li);
+  }
+  host.querySelector(".ui-dropdown").onclick = () => { panel.hidden = !panel.hidden; };
+}
+
+function renderLevel(node, depth) {
+  const subs = $("#subtypes");
+  while (subs.children.length > depth) subs.removeChild(subs.lastChild);
+  $("#docs").innerHTML = "";
+  if (node.docs) { renderDocs(node.docs); return; }
+  const host = document.createElement("p-dropdown");
+  host.setAttribute("formcontrolname", "subType");
+  subs.appendChild(host);
+  dropdown(host, Object.keys(node.children), (name) => renderLevel(node.children[name], depth + 1));
+}
+
+function renderDocs(req) {
+  const labels = ["Boleta o factura", "Detalle de Prestación", "Orden Médica"];
+  const names = ["boleta", "ordenPago", "ordenMedica"];
+  req.forEach((r, i) => {
+    if (r === "-") return;
+    const box = document.createElement("div");
+    box.className = "box-adjunto";
+    box.dataset.slot = names[i];
+    box.innerHTML = '<label class="input-label">' + labels[i] + (r === "O" ? " *" : " (opcional)") + "</label>" +
+      '<input class="file" type="file" name="doc1" hidden' + (i === 1 ? " multiple" : "") + ">" +
+      '<div class="box-adjuntar">Agregar</div><ul class="files"></ul>';
+    box.querySelector("input").onchange = async (ev) => {
+      if (!FIXTURE.robot) return;
+      const fd = new FormData();
+      for (const f of ev.target.files) fd.append("documento", f);
+      fd.append("tipoDocumento", names[i]);
+      const r = await fetch("/asistente/validacion-documento", {method: "POST", body: fd, headers: {"X-Auth-Token": token()}});
+      const body = await r.json();
+      if (body.code !== 0) { growl("El documento no pudo ser validado"); return; }
+      const li = document.createElement("li"); li.className = "instacia-editar"; li.textContent = "archivo validado";
+      box.querySelector(".files").appendChild(li);
+    };
+    $("#docs").appendChild(box);
+  });
+}
+
+async function finaliza(decision) {
+  await fetch(API + "finaliza-solicitud/", {method: "POST", headers: {"Content-Type": "application/json", "X-Auth-Token": token()},
+    body: JSON.stringify({id: Number(FIXTURE.requestNumber), excedentes: decision})});
+  $(".box-uso-excedentes").hidden = true;
+  $("#screen-form").hidden = true;
+  $("#folio").textContent = FIXTURE.requestNumber;
+  $(".detalleUsoExcedentes").hidden = false;
+}
+
+function setupSolicitar() {
+  $("#bank-continue").onclick = () => { $("#screen-bank").hidden = true; $("#screen-form").hidden = false; };
+  dropdown($("#tipo"), Object.keys(TREE), (name) => renderLevel(TREE[name], 0));
+  $("#terms-box").onclick = () => { $("#terms").checked = !$("#terms").checked; };
+  $("#form-continue").onclick = async () => {
+    if (!$("#terms").checked) { growl("Debes aceptar los términos"); return; }
+    const fd = new FormData();
+    document.querySelectorAll(".box-adjunto").forEach((b) => { for (const f of b.querySelector("input").files) fd.append(b.dataset.slot, f); });
+    await fetch(API + "solicitud", {method: "POST", body: fd, headers: {"X-Auth-Token": token()}});
+    if (FIXTURE.excedentes > 0) {
+      $("#screen-form").hidden = true;
+      $("#exc-amount").textContent = FIXTURE.excedentes;
+      $(".box-uso-excedentes").hidden = false;
+    } else {
+      await finaliza("N");
+    }
+  };
+  document.querySelectorAll(".ui-radiobutton-box").forEach((box) => {
+    box.onclick = () => { box.parentElement.querySelector("input").checked = true; };
+  });
+  $("#exc-continue").onclick = async () => {
+    const chosen = document.querySelector('input[name="exc"]:checked');
+    if (!chosen) { growl("Elige una opción"); return; }
+    await finaliza(chosen.value);
+  };
+}
+
+async function renderConsultar() {
+  const r = await fetch(API + "consulta/ultimas/0", {headers: {"X-Auth-Token": token()}});
+  const body = await r.json();
+  const cards = $("#cards");
+  cards.innerHTML = "";
+  for (const item of body.response || []) {
+    const card = document.createElement("app-card-reembolso");
+    card.innerHTML = "<h4>Solicitud " + item.solIdn + "</h4><app-mark>" + item.glsEstado + "</app-mark>";
+    if (item.glsEstado === "Aprobada") {
+      card.innerHTML += '<app-boton-colmena label="Comprobante reembolso" theme="boton-descargar-reembolso"><div class="wrapper">Comprobante reembolso</div></app-boton-colmena>';
+      card.querySelector(".wrapper").onclick = async () => {
+        const res = await fetch("/services/afiliados/private/report", {method: "POST",
+          headers: {"Content-Type": "application/json", "X-Auth-Token": token()},
+          body: JSON.stringify({pdfName: "DetalleReembolsoWeb", nombre: "comprobante", opcion: "pdf",
+                                parametros: {folioSolicitud: item.solIdn}})});
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "comprobante.pdf";
+        document.body.appendChild(a); a.click(); a.remove();
+      };
+    }
+    cards.appendChild(card);
+  }
+}
+
+function route() {
+  $("#solicitar").hidden = !location.hash.startsWith("#/reembolso/solicitar");
+  $("#consultar").hidden = !location.hash.startsWith("#/reembolso/consultar");
+  if (!$("#consultar").hidden) renderConsultar();
+}
+
+if (FIXTURE.expired) {
+  localStorage.removeItem("coleman");
+  location.replace("/login");
+} else {
+  localStorage.setItem("coleman", JSON.stringify({token: FIXTURE.token}));
+  setupSolicitar();
+  window.addEventListener("hashchange", route);
+  route();
+}
+</script>
+</body>
+</html>

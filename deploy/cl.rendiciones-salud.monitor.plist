@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template (not installed). Runs one pipeline pass every hour with the Playwright clients.
+  Replace __PROJECT_DIR__ and __HOME__, then:
+    cp deploy/cl.rendiciones-salud.monitor.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cl.rendiciones-salud.monitor.plist
+  Remove with:
+    launchctl bootout gui/$(id -u)/cl.rendiciones-salud.monitor
+  Logs only contain ids and counts.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>cl.rendiciones-salud.monitor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.local/bin/uv</string>
+    <string>run</string>
+    <string>rendiciones</string>
+    <string>run-pipeline</string>
+    <string>--clients</string>
+    <string>playwright</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_DIR__</string>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/rendiciones-salud.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/rendiciones-salud.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

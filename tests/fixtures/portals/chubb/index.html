@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Chubb (fixture)</title>
+<!-- Synthetic look-alike of the Chubb refund pages described in docs/portals.md. -->
+<style>
+  [hidden] { display: none !important; }
+  .card, mat-select, mat-option, mat-radio-button, button { cursor: pointer; border: 1px solid #888; padding: 4px; margin: 2px; display: inline-block; }
+  .doc-card { border: 1px solid #444; margin: 4px; padding: 4px; }
+</style>
+<script src="/chubb/state.js"></script>
+</head>
+<body>
+<app-root>
+  <div id="view"></div>
+  <div class="cdk-overlay-container" id="overlay"></div>
+</app-root>
+<script>
+const BASE = "/chubb/private/";
+const BENEFITS = {
+  "Salud": ["Consulta médica y exámenes", "Medicamentos", "Lentes y Marcos", "Prótesis y ortesis",
+            "Cirugías y hospitalizaciones", "Accidentes", "Urgencias"],
+  "Colectivo Dental": ["Reembolso de gastos dentales"]
+};
+const DOCS = {
+  "Consulta médica y exámenes": {
+    no: [["Boleta o factura", 1], ["Bono o boleta Isapre/Fonasa", 0], ["Derivación del médico", 0], ["Otros", 0]],
+    si: [["Bono o Bonificación Isapre/Fonasa", 1], ["Boleta o factura", 0], ["Derivación del médico", 0], ["Otros", 0]]
+  },
+  "Lentes y Marcos": {
+    no: [["Orden Médica", 1], ["Detalle de cristales o marcos", 1], ["Boleta o factura", 1], ["Bono Isapre/Fonasa", 0], ["Otros", 0]],
+    si: [["Bono Isapre/Fonasa", 1], ["Orden Médica", 1], ["Detalle de cristales o marcos", 1], ["Boleta o factura", 0], ["Otros", 0]]
+  }
+};
+const $ = (s) => document.querySelector(s);
+const form = {};
+
+function go(path) { history.pushState({}, "", BASE + path); render(); }
+
+function matSelect(host, options, onPick) {
+  host.setAttribute("role", "combobox");
+  host.textContent = "Seleccione";
+  host.onclick = () => {
+    const overlay = $("#overlay");
+    overlay.innerHTML = "";
+    for (const name of options) {
+      const opt = document.createElement("mat-option");
+      opt.setAttribute("role", "option");
+      opt.textContent = name;
+      opt.onclick = (ev) => { ev.stopPropagation(); overlay.innerHTML = ""; host.textContent = name; onPick(name); };
+      overlay.appendChild(opt);
+    }
+  };
+}
+
+function home() {
+  $("#view").innerHTML = '<h1>Bienvenido</h1><div class="tile" id="tile">Solicitar un reembolso</div>' +
+    '<button id="hist">Historial de Reembolsos</button>';
+  $("#tile").onclick = () => go("refund");
+  $("#hist").onclick = () => go("refund-history");
+}
+
+function refund() {
+  $("#view").innerHTML = `
+    <app-refund>
+      <mat-step-header aria-selected="false">1 Beneficiario</mat-step-header>
+      <mat-radio-group formcontrolname="personalIdBeneficiary" aria-label="Seleccionar beneficiario">
+        <mat-radio-button class="user-card"><input type="radio" name="ben" value="111111111"><label><app-user-select><div class="card">Titular · 11.***.***-1</div></app-user-select></label></mat-radio-button>
+        <mat-radio-button class="user-card"><input type="radio" name="ben" value="222222222"><label><app-user-select><div class="card">Beneficiario · 22.***.***-2</div></app-user-select></label></mat-radio-button>
+      </mat-radio-group>
+      <section id="step2" hidden>
+        <mat-step-header aria-selected="true">2 Datos de reembolsos</mat-step-header>
+        <mat-select formcontrolname="Product"></mat-select>
+        <mat-select formcontrolname="Benefit"></mat-select>
+        <input formcontrolname="FechaAtencion" id="fecha"> <button aria-label="Open calendar">📅</button>
+        <mat-radio-group formcontrolname="reembolsadoPreviamente">
+          <mat-radio-button id="previo-si"><input type="radio" name="previo" value="si"> Sí</mat-radio-button>
+          <mat-radio-button id="previo-no"><input type="radio" name="previo" value="no"> No</mat-radio-button>
+        </mat-radio-group>
+        <app-document-section><div class="doc-grid" id="grid"></div></app-document-section>
+      </section>
+      <!-- Like the real portal: no "Siguiente" button and the header stays aria-disabled. -->
+      <mat-step-header id="next" aria-disabled="true" aria-selected="false">3 Información de pago</mat-step-header>
+      <section id="step3" hidden>
+        <p>Cuenta registrada: Banco Ficticio ****9876</p>
+        <button class="send-request" disabled>Enviar solicitud</button>
+      </section>
+    </app-refund>`;
+  document.querySelectorAll("app-user-select .card").forEach((card) => {
+    card.onclick = () => { const input = card.closest("mat-radio-button").querySelector("input"); input.checked = true; form.ben = input.value; $("#step2").hidden = false; };
+  });
+  matSelect($('mat-select[formcontrolname="Product"]'), Object.keys(BENEFITS), (p) => {
+    form.product = p;
+    matSelect($('mat-select[formcontrolname="Benefit"]'), BENEFITS[p], (b) => { form.benefit = b; renderDocs(); });
+  });
+  const fecha = $("#fecha");
+  fecha.onblur = () => {
+    const m = fecha.value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const today = new Date(FIXTURE.today + "T12:00:00");
+    if (!m) { fecha.setAttribute("aria-invalid", "true"); return; }
+    const d = new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]), 12);
+    const min = new Date(today.getTime() - 60 * 86400000);
+    if (isNaN(d) || d > today || d < min || d.getMonth() !== Number(m[1]) - 1) { fecha.setAttribute("aria-invalid", "true"); return; }
+    fecha.setAttribute("aria-invalid", "false");
+    form.fecha = d;
+    fecha.value = Number(m[2]) + "/" + Number(m[1]) + "/" + m[3];
+  };
+  for (const id of ["#previo-si", "#previo-no"]) {
+    $(id).onclick = () => { const input = $(id).querySelector("input"); input.checked = true; form.previo = input.value; renderDocs(); };
+  }
+  $("#next").onclick = () => { if (!form.docsOk) return; $("#step3").hidden = false; $(".send-request").disabled = false; };
+  $(".send-request").onclick = () => {
+    const dialog = document.createElement("mat-dialog-container");
+    dialog.innerHTML = "<p>Antes de continuar, asegúrate que vas a adjuntar el documento correcto.</p><button>Cancelar</button><button id='confirm'>Continuar</button>";
+    $("#overlay").appendChild(dialog);
+    dialog.querySelector("#confirm").onclick = send;
+  };
+}
+
+function renderDocs() {
+  const grid = $("#grid");
+  grid.innerHTML = "";
+  if (!form.benefit || !form.previo) return;
+  const spec = (DOCS[form.benefit] || DOCS["Consulta médica y exámenes"])[form.previo];
+  form.files = {};
+  for (const [title, required] of spec) {
+    const card = document.createElement("div");
+    card.className = "doc-card";
+    card.innerHTML = '<div class="doc-card__title">' + title + "</div>" +
+      '<span class="tag">' + (required ? "Obligatorio" : "Opcional") + "</span>" +
+      '<button class="doc-card__attach">Adjuntar documentos</button>' +
+      '<button class="doc-card__btn" aria-label="Ayuda">?</button>' +
+      '<input class="hidden" type="file" multiple hidden accept="image/png, image/jpeg, image/gif, image/bmp, application/pdf">';
+    card.querySelector("input").onchange = (ev) => {
+      form.files[title] = Array.from(ev.target.files);
+      const ok = spec.every(([t, r]) => !r || (form.files[t] || []).length > 0);
+      // Like the real portal: files are validated asynchronously before step 3 can open.
+      setTimeout(() => { form.docsOk = ok; }, 800);
+    };
+    grid.appendChild(card);
+  }
+}
+
+async function send() {
+  const fd = new FormData();
+  fd.append("refundFlow", "web");
+  fd.append("rutBeneficiario", form.ben);
+  fd.append("product", form.product);
+  fd.append("benefit", form.benefit);
+  fd.append("fechaAtencion", form.fecha.toISOString());
+  fd.append("denuncio", FIXTURE.denuncio);
+  fd.append("fuente", "web");
+  for (const files of Object.values(form.files)) for (const f of files) fd.append("soportes", f);
+  await fetch("/api/refund", {method: "POST", body: fd});
+  $("#overlay").innerHTML = "";
+  $("#view").innerHTML = "<h2>Solicitud enviada</h2><p>N° de denuncio " + FIXTURE.denuncio + "</p>";
+}
+
+function history_() {
+  const rows = FIXTURE.history;
+  let page = 0;
+  const draw = () => {
+    const slice = rows.slice(page * 5, page * 5 + 5);
+    $("#view").innerHTML = '<table class="table"><thead><tr><th>Nombre beneficiario</th><th>Fecha</th>' +
+      "<th>Nombre o ID de reembolso</th><th>Tipo de reembolso</th><th>Monto</th><th>Estado</th><th>Reembolso</th></tr></thead><tbody>" +
+      slice.map((r) => "<tr><td>Beneficiario</td><td>" + r.fecha + "</td><td>" + r.id + "</td><td>Salud</td><td>" + r.monto +
+        "</td><td>" + r.estado + "</td><td>" + (r.estado === "Pagado" || r.estado === "Rechazada"
+          ? '<button class="liq" data-id="' + r.id + '" mattooltip="Click para descargar informe de liquidación">⬇</button>' : "") +
+        "</td></tr>").join("") +
+      '</tbody></table><mat-paginator><button class="mat-mdc-paginator-navigation-next"' +
+      ((page + 1) * 5 >= rows.length ? " disabled" : "") + ">›</button></mat-paginator>";
+    $(".mat-mdc-paginator-navigation-next").onclick = () => { page += 1; draw(); };
+    // Like the real portal: fetch the base64 PDF, then save it through a blob link.
+    for (const b of document.querySelectorAll("button.liq")) {
+      b.onclick = async () => {
+        const res = await fetch("/api/charles-taylor/liquidation-document/" + b.dataset.id + "/1");
+        const data = await res.json();
+        const bytes = Uint8Array.from(atob(data.response.archivoBase64), (c) => c.charCodeAt(0));
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([bytes], {type: "application/pdf"}));
+        a.download = "liquidación-" + b.dataset.id + ".pdf";
+        a.click();
+      };
+    }
+  };
+  // Like the real portal: an empty-state row first, the data a moment later.
+  $("#view").innerHTML = '<table class="table"><thead><tr><th>Nombre beneficiario</th><th>Fecha</th>' +
+    "<th>Nombre o ID de reembolso</th><th>Tipo de reembolso</th><th>Monto</th><th>Estado</th><th>Reembolso</th></tr></thead>" +
+    '<tbody><tr><td colspan="7">Sin Movimientos</td></tr></tbody></table>';
+  setTimeout(draw, 400);
+}
+
+function render() {
+  const path = location.pathname.slice(BASE.length);
+  if (path === "refund") refund();
+  else if (path === "refund-history") history_();
+  else home();
+}
+
+// Deep links in a fresh tab land on home, like the real portal.
+if (location.pathname !== BASE + "home") history.replaceState({}, "", BASE + "home");
+render();
+</script>
+</body>
+</html>

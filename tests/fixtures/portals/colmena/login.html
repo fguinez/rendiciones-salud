@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Colmena login (fixture)</title></head>
+<body><app-root><form id="login"><input name="rut"><input type="password" name="clave"><button>Ingresar</button></form><p id="err"></p></app-root>
+<script>
+  document.getElementById("login").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    const r = await fetch("/login", {method: "POST", headers: {"Content-Type": "application/json"},
+                                     body: JSON.stringify({user: f.rut.value, password: f.clave.value})});
+    if (r.ok) { location.href = "/afiliados/"; return; }
+    f.clave.value = "";
+    document.getElementById("err").textContent = "RUT o clave incorrectos";
+  };
+</script>
+</body>
+</html>

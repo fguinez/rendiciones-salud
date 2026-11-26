@@ -1,0 +1,6 @@
+CENTRO DE IMÁGENES DEMO
+RUT 76.123.456-0
+INFORME RADIOLÓGICO
+Radiografía de tórax
+Fecha: 2026-07-02
+Impresión diagnóstica: sin hallazgos patológicos.

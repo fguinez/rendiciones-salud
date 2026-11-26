@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake session token served by the local test portal (tests/portal_server.py)"
+condition = "AND"
+paths = ['''^tests/portal_server\.py$''']
+regexes = ['''^tok-fixture-123$''']
