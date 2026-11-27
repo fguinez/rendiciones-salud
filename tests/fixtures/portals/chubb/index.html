@@ -111,10 +111,16 @@ function refund() {
   }
   $("#next").onclick = () => { if (!form.docsOk) return; $("#step3").hidden = false; $(".send-request").disabled = false; };
   $(".send-request").onclick = () => {
+    if (FIXTURE.noConfirm) return;
     const dialog = document.createElement("mat-dialog-container");
     dialog.innerHTML = "<p>Antes de continuar, asegúrate que vas a adjuntar el documento correcto.</p><button>Cancelar</button><button id='confirm'>Continuar</button>";
-    $("#overlay").appendChild(dialog);
-    dialog.querySelector("#confirm").onclick = send;
+    const confirm = dialog.querySelector("#confirm");
+    confirm.onclick = send;
+    confirm.disabled = FIXTURE.dialogDelayMs > 0;
+    setTimeout(() => {
+      $("#overlay").appendChild(dialog);
+      setTimeout(() => { confirm.disabled = false; }, FIXTURE.dialogDelayMs);
+    }, FIXTURE.dialogDelayMs);
   };
 }
 
