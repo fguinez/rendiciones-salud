@@ -243,14 +243,25 @@ class RendicionView:
 
     @property
     def bonificacion_document(self) -> DocumentView | None:
-        """The Colmena bonificación receipt, when attached."""
-        for doc in self.documents:
-            if doc.id == self.bonificacion_document_id:
-                return doc
-        for doc in self.documents:
-            if doc.role == DocRole.BONIFICACION_COLMENA:
-                return doc
-        return None
+        """The main Colmena comprobante of the current request, when attached."""
+        return next(iter(self.bonificacion_documents), None)
+
+    @property
+    def bonificacion_documents(self) -> tuple[DocumentView, ...]:
+        """Colmena comprobantes of the current request (one per reembolso), main one first.
+
+        Comprobantes of an earlier request, before the rendición was sent again, are left out;
+        the main one (``bonificacion_document_id``, cleared on each Colmena submission) stays.
+        """
+        docs = [d for d in self.documents if d.role == DocRole.BONIFICACION_COLMENA]
+        if self.colmena_submitted_at is not None:
+            submitted = self.colmena_submitted_at
+            docs = [
+                d
+                for d in docs
+                if d.created_at >= submitted or d.id == self.bonificacion_document_id
+            ]
+        return tuple(sorted(docs, key=lambda d: (d.id != self.bonificacion_document_id, d.id)))
 
     @property
     def chubb_response_document(self) -> DocumentView | None:

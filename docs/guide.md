@@ -219,12 +219,12 @@ class PortalClient(Protocol):
 
 
 class ColmenaClient(PortalClient, Protocol):
-    def download_bonificacion(self, request_id: str, dest: Path) -> Path: ...
+    def download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]: ...
 ```
 
 `run-pipeline` carga `RENDICIONES_PORTAL_FACTORY=rendiciones.<modulo>:<funcion>` (debe
 devolver `(colmena, chubb)`) y hace: `lista` → enviar a Colmena → consultar → al aprobar,
-descargar y adjuntar comprobante → enviar a Chubb → consultar. `FakePortalClient` /
+descargar y adjuntar los comprobantes → enviar a Chubb → consultar. `FakePortalClient` /
 `FakeColmenaClient` sirven para pruebas. Detalles de los portales: `docs/portals.md`.
 
 Alternativamente, un agente externo que maneja el navegador puede usar la API REST

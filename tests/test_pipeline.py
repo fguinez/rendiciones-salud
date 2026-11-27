@@ -63,6 +63,20 @@ def test_full_happy_path(
     assert "comprobante_adjuntado" in kinds
 
 
+def test_every_colmena_comprobante_is_attached_and_sent_to_chubb(
+    service: RendicionService, lista_rendicion: int, chubb: FakePortalClient
+) -> None:
+    """A solicitud paid in several reembolsos attaches each comprobante and sends all to Chubb."""
+    pipeline = Pipeline(service, FakeColmenaClient(comprobantes=2), chubb)
+
+    pipeline.run_once()
+
+    view = service.repo.get_rendicion(lista_rendicion)
+    assert view.status == Status.CHUBB_APROBADA
+    assert len(view.bonificacion_documents) == 2
+    assert len(chubb.submitted[0].bonificacion_documents) == 2
+
+
 def test_submitted_rendicion_has_absolute_paths(
     service: RendicionService,
     lista_rendicion: int,
@@ -183,7 +197,7 @@ def test_client_exception_moves_to_error(
     """Unexpected client exceptions are caught and recorded without leaking details."""
 
     class BrokenColmena(FakeColmenaClient):
-        def download_bonificacion(self, request_id: str, dest: Path) -> Path:
+        def download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]:
             raise RuntimeError("secret detail")
 
     report = Pipeline(service, BrokenColmena(), chubb).run_once()

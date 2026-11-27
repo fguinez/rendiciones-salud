@@ -203,8 +203,8 @@ class ChubbBrowserClient:
     def _submit(self, rendicion: RendicionView) -> SubmissionResult:
         prestacion = chubb_prestacion(rendicion.tipo_prestacion, rendicion.id)
         fecha = check_chubb_date(rendicion.fecha_atencion, self.today())
-        bono = rendicion.bonificacion_document
-        if bono is None:
+        bonos = rendicion.bonificacion_documents
+        if not bonos:
             raise PortalError("Falta el comprobante de bonificación de Colmena")
         recovered = self._reconcile(rendicion)
         if recovered is not None:
@@ -220,7 +220,7 @@ class ChubbBrowserClient:
             self._set_previously_reimbursed(page)
             cards = self._read_cards(page)
             assignment = assign_chubb_documents(
-                [card for card, _ in cards], rendicion.support_documents, bono
+                [card for card, _ in cards], rendicion.support_documents, bonos
             )
             prepared = self._prepare(assignment, work)
             # Chubb keeps files client-side until the final submit (no upload on select).

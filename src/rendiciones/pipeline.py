@@ -105,6 +105,7 @@ def record_submission(
             {
                 "colmena_request_id": request_id,
                 "colmena_submitted_at": now,
+                "bonificacion_document_id": None,
             },
         )
     else:
@@ -320,13 +321,11 @@ class Pipeline:
 
     def _attach_bonificacion(self, rendicion_id: int, request_id: str) -> None:
         with tempfile.TemporaryDirectory(dir=self.service.settings.tmp_dir) as tmp:
-            path = self.colmena.download_bonificacion(request_id, Path(tmp))
-            resolved = path.resolve()
-            if Path(tmp).resolve() not in resolved.parents:
+            paths = self.colmena.download_bonificaciones(request_id, Path(tmp))
+            resolved = [path.resolve() for path in paths]
+            if not resolved or any(Path(tmp).resolve() not in p.parents for p in resolved):
                 raise ValueError("download outside destination")
-            self.service.attach_file(
-                rendicion_id, resolved, resolved.name, DocRole.BONIFICACION_COLMENA
-            )
+            self.service.attach_files(rendicion_id, resolved, DocRole.BONIFICACION_COLMENA)
 
     def submit_chubb(self, report: PipelineReport) -> None:
         """Submit approved Colmena rendiciones (with comprobante) to Chubb."""

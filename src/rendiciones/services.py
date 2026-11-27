@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -75,6 +76,14 @@ def to_item(doc: DocumentView) -> GroupItem:
         tipo_prestacion=ex.tipo_prestacion,
         rendicion_id=doc.rendicion_id,
     )
+
+
+@dataclass(frozen=True)
+class _Placement:
+    """Where a reused document was before an attach, to put it back on rollback."""
+
+    rendicion_id: int | None
+    role: DocRole
 
 
 class RendicionService:
@@ -361,13 +370,60 @@ class RendicionService:
         self, rendicion_id: int, source: Path | BinaryIO, filename: str, role: DocRole
     ) -> DocumentView:
         """Store a file and attach it to a rendición with the given role."""
+        return self._attach(rendicion_id, source, filename, role)[0]
+
+    def attach_files(
+        self, rendicion_id: int, paths: Sequence[Path], role: DocRole
+    ) -> list[DocumentView]:
+        """Attach every file or none: a failed batch leaves the rendición as it found it."""
+        main_before = self.repo.get_rendicion(rendicion_id).bonificacion_document_id
+        attached: list[tuple[DocumentView, _Placement | None]] = []
+        try:
+            for path in paths:
+                attached.append(
+                    self._attach(rendicion_id, path, path.name, role, set_main=not attached)
+                )
+        except Exception:
+            for doc, before in reversed(attached):
+                if before is None:
+                    self.repo.delete_document(doc.id)
+                    self.store.delete(doc.path)
+                else:
+                    self.repo.set_document_rendicion(doc.id, before.rendicion_id)
+                    self.repo.set_document_role(doc.id, before.role)
+            if attached and role == DocRole.BONIFICACION_COLMENA:
+                self.repo.record_fields(
+                    rendicion_id,
+                    {"bonificacion_document_id": main_before},
+                    kind="adjuntos_revertidos",
+                    detail={"document_ids": [doc.id for doc, _ in attached]},
+                )
+            logger.warning("rendicion %d: attach batch rolled back", rendicion_id)
+            raise
+        return [doc for doc, _ in attached]
+
+    def _attach(
+        self,
+        rendicion_id: int,
+        source: Path | BinaryIO,
+        filename: str,
+        role: DocRole,
+        *,
+        set_main: bool = True,
+    ) -> tuple[DocumentView, _Placement | None]:
+        """Attach one file; also return where a reused document was before (None if new).
+
+        ``set_main=False`` attaches a Colmena comprobante without making it the main one.
+        """
         rendicion = self.repo.get_rendicion(rendicion_id)
         if isinstance(source, Path):
             stored = self.store.save_path(source)
         else:
             stored = self.store.save_stream(source)
         existing = self.repo.find_document_by_sha(stored.sha256)
+        before = None
         if existing is not None:
+            before = _Placement(existing.rendicion_id, existing.role)
             if existing.rendicion_id not in (None, rendicion_id):
                 raise UploadError("El archivo ya pertenece a otra rendición")
             doc_id = existing.id
@@ -389,7 +445,7 @@ class RendicionService:
                 rendicion_id=rendicion.id,
                 role=role,
             )
-        if role == DocRole.BONIFICACION_COLMENA:
+        if role == DocRole.BONIFICACION_COLMENA and set_main:
             self.repo.record_fields(
                 rendicion_id,
                 {"bonificacion_document_id": doc_id},
@@ -402,4 +458,4 @@ class RendicionService:
             self.repo.add_event(
                 rendicion_id, "documento_adjuntado", {"document_id": doc_id, "role": role.value}
             )
-        return self.repo.get_document(doc_id)
+        return self.repo.get_document(doc_id), before

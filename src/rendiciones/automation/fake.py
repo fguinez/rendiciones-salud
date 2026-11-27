@@ -73,22 +73,27 @@ class FakePortalClient:
 
 
 class FakeColmenaClient(FakePortalClient):
-    """Fake Colmena that also produces a comprobante PDF."""
+    """Fake Colmena that also produces ``comprobantes`` PDFs per approved request."""
 
     def __init__(
         self,
         decide: Callable[[str], StatusResult] | None = None,
         fail_submit: bool = False,
+        comprobantes: int = 1,
     ) -> None:
         super().__init__("colmena", decide=decide, fail_submit=fail_submit)
+        self.comprobantes = comprobantes
         self.downloads: list[str] = []
 
-    def download_bonificacion(self, request_id: str, dest: Path) -> Path:
-        """Write a small unique PDF named after the request id."""
+    def download_bonificaciones(self, request_id: str, dest: Path) -> list[Path]:
+        """Write small unique PDFs named after the request id."""
         self.downloads.append(request_id)
-        target = dest / f"bonificacion-{request_id}.pdf"
-        target.write_bytes(minimal_pdf(request_id))
-        return target
+        targets: list[Path] = []
+        for n in range(1, self.comprobantes + 1):
+            target = dest / f"bonificacion-{request_id}-{n}.pdf"
+            target.write_bytes(minimal_pdf(f"{request_id}-{n}"))
+            targets.append(target)
+        return targets
 
 
 class FakeChubbClient(FakePortalClient):

@@ -380,6 +380,44 @@ def test_bank_settings_api(client: TestClient) -> None:
     assert client.get("/api/bank/settings").json()["wait_days"] == 15
 
 
+def test_colmena_excedente_adds_every_comprobante(
+    service: RendicionService, lista_rendicion: int, mocker: MockerFixture
+) -> None:
+    """With several comprobantes, the excedentes Colmena pays is their sum."""
+    from rendiciones.bank.expected import colmena_excedente
+    from rendiciones.pipeline import Pipeline
+
+    pipeline = Pipeline(service, FakeColmenaClient(comprobantes=2), FakePortalClient("chubb"))
+    pipeline.run_once()
+    mocker.patch(
+        "rendiciones.bank.expected.pdf_text",
+        side_effect=["Uso Excedente 1.500", "Uso Excedente 12.000"],
+    )
+
+    total = colmena_excedente(service.repo.get_rendicion(lista_rendicion))
+
+    assert total == 13500
+
+
+def test_colmena_excedente_is_unknown_when_a_comprobante_is_unreadable(
+    service: RendicionService, lista_rendicion: int, mocker: MockerFixture
+) -> None:
+    """One unreadable comprobante makes the excedente unknown (0), never a partial sum."""
+    from rendiciones.bank.expected import colmena_excedente
+    from rendiciones.pipeline import Pipeline
+
+    pipeline = Pipeline(service, FakeColmenaClient(comprobantes=2), FakePortalClient("chubb"))
+    pipeline.run_once()
+    mocker.patch(
+        "rendiciones.bank.expected.pdf_text",
+        side_effect=["Uso Excedente 1.500", ValueError("unreadable")],
+    )
+
+    total = colmena_excedente(service.repo.get_rendicion(lista_rendicion))
+
+    assert total == 0
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
