@@ -422,7 +422,8 @@ class ChubbBrowserClient:
         timeout = self.submit_timeout_s * 1000
         page.on("request", record)
         try:
-            with page.expect_request(is_refund, timeout=timeout) as info:
+            # Outlast the dialog wait and the confirm click, which get `timeout` each.
+            with page.expect_request(is_refund, timeout=2 * timeout) as info:
                 send.click()
                 dialog = page.locator(ChubbSel.DIALOG).first
                 dialog.wait_for(state="visible", timeout=timeout)

@@ -63,6 +63,8 @@ class PortalState:
     chubb_sso_pending: bool = False
     # 'Enviar solicitud' never opens the confirmation dialog.
     chubb_no_confirm: bool = False
+    # Delay before the confirmation dialog shows up, and again before 'Continuar' is enabled.
+    chubb_dialog_delay_ms: int = 0
     denuncio: str = "4455667788"
     history: list[dict[str, str]] = field(default_factory=list)
     username: str = "11.111.111-1"
@@ -123,6 +125,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "denuncio": state.denuncio,
                 "history": state.history,
                 "noConfirm": state.chubb_no_confirm,
+                "dialogDelayMs": state.chubb_dialog_delay_ms,
             }
         body = f"window.FIXTURE = {json.dumps(data)};".encode()
         self._send(200, body, "application/javascript")

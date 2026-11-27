@@ -803,6 +803,22 @@ def test_chubb_missing_confirmation_keeps_marker_and_screenshot(
     assert len(list((settings.data_dir / "screenshots").glob("chubb-*-error-*.png"))) == 1
 
 
+def test_chubb_slow_confirmation_dialog_still_sends(
+    service: RendicionService,
+    approved_rendicion: int,
+    portals: PortalServer,
+    make_chubb: Callable[..., ChubbBrowserClient],
+) -> None:
+    """A dialog and a confirm button each within the submit timeout, but slower together, send."""
+    portals.state.chubb_dialog_delay_ms = 1400
+    rendicion = service.repo.get_rendicion(approved_rendicion)
+
+    result = make_chubb(submit_timeout_s=2).submit(rendicion)
+
+    assert result.ok
+    assert len(portals.state.posted("/api/refund")) == 1
+
+
 def test_chubb_waits_through_silent_sso_login_page(
     service: RendicionService,
     approved_rendicion: int,
