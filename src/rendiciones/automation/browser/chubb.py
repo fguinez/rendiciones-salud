@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright.sync_api import Download, Locator, Page, Request, Response
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from rendiciones.automation.base import (
@@ -211,44 +212,50 @@ class ChubbBrowserClient:
             return recovered
         with private_tmpdir(self.tmp_dir) as work:
             page = self._home()
-            page.get_by_text(ChubbSel.REFUND_TILE_TEXT).first.click()
-            page.locator(ChubbSel.BENEFICIARY_GROUP).first.wait_for(state="visible")
-            self._ensure_private(page)
-            self._select_beneficiary(page, rendicion.support_documents)
-            self._select_benefit(page, prestacion)
-            self._fill_date(page, fecha)
-            self._set_previously_reimbursed(page)
-            cards = self._read_cards(page)
-            assignment = assign_chubb_documents(
-                [card for card, _ in cards], rendicion.support_documents, bonos
-            )
-            prepared = self._prepare(assignment, work)
-            # Chubb keeps files client-side until the final submit (no upload on select).
-            for card, locator in cards:
-                if card.title in prepared:
-                    locator.locator(ChubbSel.FILE_INPUT).first.set_input_files(
-                        [str(f.path) for f in prepared[card.title]]
-                    )
-            files = sum(len(v) for v in prepared.values())
-            logger.info(
-                "rendicion %d: chubb %d files attached to %d cards",
-                rendicion.id,
-                files,
-                len(prepared),
-            )
-            send = self._ready_to_send(page)
-            if self.dry_run:
-                logger.info("rendicion %d: chubb dry-run stopped before sending", rendicion.id)
-                return SubmissionResult(
-                    ok=True,
-                    message=f"dry-run: formulario Chubb completo ({prestacion.benefit}, "
-                    f"{files} archivos) sin enviar",
-                    raw={"dry_run": True, "chubb_benefit": prestacion.benefit},
+            try:
+                page.get_by_text(ChubbSel.REFUND_TILE_TEXT).first.click()
+                page.locator(ChubbSel.BENEFICIARY_GROUP).first.wait_for(state="visible")
+                self._ensure_private(page)
+                self._select_beneficiary(page, rendicion.support_documents)
+                self._select_benefit(page, prestacion)
+                self._fill_date(page, fecha)
+                self._set_previously_reimbursed(page)
+                cards = self._read_cards(page)
+                assignment = assign_chubb_documents(
+                    [card for card, _ in cards], rendicion.support_documents, bonos
                 )
-            self.ledger.set_marker(rendicion.id, PORTAL, MARKER_FINAL_CLICK)
-            request = self._send(page, send)
-            request_id = self._request_id(page, request)
-            self.ledger.set_marker(rendicion.id, PORTAL, MARKER_DONE, request_id)
+                prepared = self._prepare(assignment, work)
+                # Chubb keeps files client-side until the final submit (no upload on select).
+                for card, locator in cards:
+                    if card.title in prepared:
+                        locator.locator(ChubbSel.FILE_INPUT).first.set_input_files(
+                            [str(f.path) for f in prepared[card.title]]
+                        )
+                files = sum(len(v) for v in prepared.values())
+                logger.info(
+                    "rendicion %d: chubb %d files attached to %d cards",
+                    rendicion.id,
+                    files,
+                    len(prepared),
+                )
+                send = self._ready_to_send(page)
+                if self.dry_run:
+                    logger.info("rendicion %d: chubb dry-run stopped before sending", rendicion.id)
+                    return SubmissionResult(
+                        ok=True,
+                        message=f"dry-run: formulario Chubb completo ({prestacion.benefit}, "
+                        f"{files} archivos) sin enviar",
+                        raw={"dry_run": True, "chubb_benefit": prestacion.benefit},
+                    )
+                self.ledger.set_marker(rendicion.id, PORTAL, MARKER_FINAL_CLICK)
+                request = self._send(page, send)
+                request_id = self._request_id(page, request)
+                self.ledger.set_marker(rendicion.id, PORTAL, MARKER_DONE, request_id)
+            except SessionExpiredError:
+                raise
+            except Exception:
+                self._save_failure_screenshot(page, rendicion.id)
+                raise
             shot = take_screenshot(
                 page, self.screens_dir, f"chubb-{rendicion.id}-{stamp(self.now())}"
             )
@@ -258,6 +265,14 @@ class ChubbBrowserClient:
             request_id=request_id,
             raw={"chubb_benefit": prestacion.benefit, "screenshot": shot.name},
         )
+
+    def _save_failure_screenshot(self, page: Page, rendicion_id: int) -> None:
+        name = f"chubb-{rendicion_id}-error-{stamp(self.now())}"
+        try:
+            take_screenshot(page, self.screens_dir, name)
+        except (PlaywrightError, OSError):
+            # Best effort: the submit error being re-raised matters more than its screenshot.
+            logger.warning("rendicion %d: chubb failure screenshot not saved", rendicion_id)
 
     def _reconcile(self, rendicion: RendicionView) -> SubmissionResult | None:
         marker = self.ledger.get_marker(rendicion.id, PORTAL)
@@ -398,19 +413,34 @@ class ChubbBrowserClient:
                 ChubbSel.REFUND_API_PATH
             )
 
+        refunds: list[Request] = []
+
+        def record(request: Request) -> None:
+            if is_refund(request):
+                refunds.append(request)
+
         timeout = self.submit_timeout_s * 1000
+        page.on("request", record)
         try:
             with page.expect_request(is_refund, timeout=timeout) as info:
                 send.click()
                 dialog = page.locator(ChubbSel.DIALOG).first
-                dialog.wait_for(state="visible")
+                dialog.wait_for(state="visible", timeout=timeout)
                 dialog.get_by_role(
                     "button", name=re.compile(ChubbSel.CONFIRM_BUTTON_RE, re.IGNORECASE)
-                ).last.click()
+                ).last.click(timeout=timeout)
         except PlaywrightTimeoutError as exc:
+            if refunds:
+                raise PortalError(
+                    "Chubb alcanzó a recibir el envío, pero la página no terminó de confirmarlo; "
+                    "busca la solicitud en el historial y registra su N° antes de reintentar"
+                ) from exc
             raise PortalError(
-                "Chubb no envió la solicitud a tiempo; revisa el historial antes de reintentar"
+                "Chubb no envió la solicitud a tiempo (no se vio ningún envío al portal); revisa "
+                "la captura del error en screenshots/ y el historial antes de reintentar"
             ) from exc
+        finally:
+            page.remove_listener("request", record)
         request = info.value
         response = request.response()
         if response is None or response.status >= 400:

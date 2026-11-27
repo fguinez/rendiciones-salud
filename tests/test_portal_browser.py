@@ -114,9 +114,7 @@ def make_chubb(
             urls=ChubbUrls(base=f"{portals.origin}/chubb/"),
             today=lambda: TODAY,
             now=lambda: NOW,
-            login_timeout_s=5,
-            submit_timeout_s=10,
-            **kwargs,  # type: ignore[arg-type]
+            **{"login_timeout_s": 5, "submit_timeout_s": 10, **kwargs},  # type: ignore[arg-type]
         )
 
     return _make
@@ -784,6 +782,25 @@ def test_chubb_dry_run_does_not_send(
 
     assert result.raw["dry_run"] is True
     assert portals.state.posted("/api/refund") == []
+
+
+def test_chubb_missing_confirmation_keeps_marker_and_screenshot(
+    service: RendicionService,
+    approved_rendicion: int,
+    portals: PortalServer,
+    make_chubb: Callable[..., ChubbBrowserClient],
+    settings: Settings,
+) -> None:
+    """No confirmation dialog: nothing is posted, the marker stays and a screenshot is left."""
+    portals.state.chubb_no_confirm = True
+    rendicion = service.repo.get_rendicion(approved_rendicion)
+
+    with pytest.raises(PortalError, match="no se vio ningún envío"):
+        make_chubb(submit_timeout_s=1).submit(rendicion)
+
+    assert portals.state.posted("/api/refund") == []
+    assert service.repo.get_marker(approved_rendicion, "chubb") is not None
+    assert len(list((settings.data_dir / "screenshots").glob("chubb-*-error-*.png"))) == 1
 
 
 def test_chubb_waits_through_silent_sso_login_page(
