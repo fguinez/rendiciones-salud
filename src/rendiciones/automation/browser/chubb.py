@@ -432,8 +432,8 @@ class ChubbBrowserClient:
         except PlaywrightTimeoutError as exc:
             if refunds:
                 raise PortalError(
-                    "Chubb alcanzó a recibir el envío, pero la página no terminó de confirmarlo; "
-                    "busca la solicitud en el historial y registra su N° antes de reintentar"
+                    "Se alcanzó a enviar la solicitud a Chubb, pero no se pudo confirmar; busca "
+                    "la solicitud en el historial y registra su N° antes de reintentar"
                 ) from exc
             raise PortalError(
                 "Chubb no envió la solicitud a tiempo (no se vio ningún envío al portal); revisa "
